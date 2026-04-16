@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { MessageRole, MessageStatus } from '@prisma/client'
 import { router, protectedProcedure, TRPCError } from '../trpc'
+import { enqueueAgentRun } from '@/lib/queue'
 
 const messageSelect = {
   id: true,
@@ -50,6 +51,7 @@ export const conversationsRouter = router({
       where: { userId: ctx.user.id },
       select: {
         ...conversationSelect,
+        agent: { select: { id: true, name: true, slug: true } },
         messages: {
           select: messageSelect,
           orderBy: { createdAt: 'desc' },
@@ -139,7 +141,11 @@ export const conversationsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const conversation = await ctx.prisma.conversation.findUnique({
         where: { id: input.conversationId },
-        select: { userId: true },
+        select: {
+          userId: true,
+          agentId: true,
+          agent: { select: { slug: true } },
+        },
       })
 
       if (!conversation) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversation not found' })
@@ -147,7 +153,14 @@ export const conversationsRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' })
       }
 
-      return ctx.prisma.message.create({
+      if (input.role === MessageRole.user && !conversation.agent) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Conversation has no agent assigned — cannot process user message',
+        })
+      }
+
+      const message = await ctx.prisma.message.create({
         data: {
           conversationId: input.conversationId,
           role: input.role,
@@ -156,6 +169,19 @@ export const conversationsRouter = router({
         },
         select: messageSelect,
       })
+
+      if (input.role === MessageRole.user) {
+        await enqueueAgentRun({
+          runId: crypto.randomUUID(),
+          conversationId: input.conversationId,
+          messageId: message.id,
+          agentSlug: conversation.agent!.slug,
+          userMessage: input.content,
+          mode: 'inline',
+        })
+      }
+
+      return message
     }),
 
   // PATCH /trpc/conversations.updateMessageStatus
