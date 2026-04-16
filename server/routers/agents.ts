@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { AgentType } from '@prisma/client'
-import { router, publicProcedure, TRPCError } from '../trpc'
+import { router, protectedProcedure, TRPCError } from '../trpc'
 
 const agentDelegateSelect = {
   id: true,
@@ -17,7 +17,7 @@ const agentWithDelegations = {
 
 export const agentsRouter = router({
   // GET /trpc/agents.list
-  list: publicProcedure.query(({ ctx }) =>
+  list: protectedProcedure.query(({ ctx }) =>
     ctx.prisma.agent.findMany({
       include: agentWithDelegations,
       orderBy: [{ agentType: 'asc' }, { name: 'asc' }],
@@ -25,7 +25,7 @@ export const agentsRouter = router({
   ),
 
   // GET /trpc/agents.byId?input={"id":"..."}
-  byId: publicProcedure
+  byId: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const agent = await ctx.prisma.agent.findUnique({
@@ -37,7 +37,7 @@ export const agentsRouter = router({
     }),
 
   // PATCH /trpc/agents.update
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.string(),
@@ -62,7 +62,7 @@ export const agentsRouter = router({
     }),
 
   // PUT /trpc/agents.setDelegates
-  setDelegates: publicProcedure
+  setDelegates: protectedProcedure
     .input(
       z.object({
         managerId: z.string(),
