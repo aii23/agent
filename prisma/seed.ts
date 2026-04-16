@@ -2,7 +2,7 @@ import { config } from 'dotenv'
 config({ path: '.env.local' })
 config()
 
-import { PrismaClient, AgentType } from '@prisma/client'
+import { PrismaClient, AgentType, MessageRole, MessageStatus } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
@@ -324,6 +324,85 @@ async function main() {
       taskSplitter.slug,
     ],
   })
+
+  // ─── Demo user ────────────────────────────────────────────────────────────
+
+  const demoUser = await prisma.user.upsert({
+    where: { walletAddress: '0x000000000000000000000000000000000000dead' },
+    update: {},
+    create: {
+      walletAddress: '0x000000000000000000000000000000000000dead',
+      isAdmin: true,
+    },
+  })
+
+  // ─── Sample conversations + messages ──────────────────────────────────────
+
+  const conv1 = await prisma.conversation.upsert({
+    where: { id: 'seed-conv-cmo-001' },
+    update: {},
+    create: {
+      id: 'seed-conv-cmo-001',
+      userId: demoUser.id,
+      agentId: cmo.id,
+      title: 'Product launch content',
+    },
+  })
+
+  await prisma.message.createMany({
+    skipDuplicates: true,
+    data: [
+      {
+        id: 'seed-msg-001',
+        conversationId: conv1.id,
+        role: MessageRole.user,
+        content: 'Generate a post about our product launch.',
+        status: MessageStatus.DONE,
+      },
+      {
+        id: 'seed-msg-002',
+        conversationId: conv1.id,
+        role: MessageRole.assistant,
+        content:
+          "On it. I'm kicking off the content-generator and will have cpo-reviewer check the draft before surfacing it.",
+        status: MessageStatus.DONE,
+      },
+    ],
+  })
+
+  const conv2 = await prisma.conversation.upsert({
+    where: { id: 'seed-conv-auto-001' },
+    update: {},
+    create: {
+      id: 'seed-conv-auto-001',
+      userId: demoUser.id,
+      agentId: null, // implicit router picks the agent
+      title: 'Q3 strategy review',
+    },
+  })
+
+  await prisma.message.createMany({
+    skipDuplicates: true,
+    data: [
+      {
+        id: 'seed-msg-003',
+        conversationId: conv2.id,
+        role: MessageRole.user,
+        content: 'What are the key priorities for Q3?',
+        status: MessageStatus.DONE,
+      },
+      {
+        id: 'seed-msg-004',
+        conversationId: conv2.id,
+        role: MessageRole.assistant,
+        content: 'Routing to CEO. Fetching strategy pages from Notion…',
+        status: MessageStatus.STREAMING,
+      },
+    ],
+  })
+
+  console.log('✓ Seeded conversations:', [conv1.id, conv2.id])
+  console.log('✓ Seeded demo user:', demoUser.walletAddress)
 }
 
 main()

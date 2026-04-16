@@ -26,18 +26,32 @@ enum RunStatus {
   FAILED
 }
 
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum MessageStatus {
+  PENDING
+  STREAMING
+  DONE
+  FAILED
+}
+
 // ─────────────────────────────────────────────
 // Auth
 // ─────────────────────────────────────────────
 
 model User {
-  id            String    @id @default(uuid())
-  walletAddress String    @unique
-  isAdmin       Boolean   @default(false)
-  createdAt     DateTime  @default(now())
+  id            String   @id @default(uuid())
+  walletAddress String   @unique
+  isAdmin       Boolean  @default(false)
+  createdAt     DateTime @default(now())
 
   sessions      Session[]
   workflowRuns  WorkflowRun[]
+  conversations Conversation[]
 }
 
 model Session {
@@ -47,7 +61,7 @@ model Session {
   expiresAt DateTime
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ─────────────────────────────────────────────
@@ -55,28 +69,29 @@ model Session {
 // ─────────────────────────────────────────────
 
 model Agent {
-  id           String    @id @default(uuid())
-  slug         String    @unique
+  id           String   @id @default(uuid())
+  slug         String   @unique
   name         String
   role         String
   systemPrompt String
-  tools        Json      @default("[]")
-  model        String    @default("claude-sonnet")
+  tools        Json     @default("[]")
+  model        String   @default("claude-sonnet")
   inputSchema  Json?
   outputSchema Json?
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  description  String?
-  agentType    AgentType @default(EXECUTOR)
-  notionScope  Json?
-  maxSteps     Int       @default(8)
+  description String?
+  agentType   AgentType @default(EXECUTOR)
+  notionScope Json?
+  maxSteps    Int       @default(8)
 
-  delegatesTo  Agent[]   @relation("AgentDelegation")
-  delegatedBy  Agent[]   @relation("AgentDelegation")
+  delegatesTo Agent[] @relation("AgentDelegation")
+  delegatedBy Agent[] @relation("AgentDelegation")
 
   workflowSteps WorkflowStep[]
+  conversations Conversation[]
 }
 
 // ─────────────────────────────────────────────
@@ -88,28 +103,28 @@ model WorkflowTemplate {
   slug        String   @unique
   name        String
   description String?
-  steps       Json     // array of step definitions
+  steps       Json // array of step definitions
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  runs        WorkflowRun[]
+  runs WorkflowRun[]
 }
 
 model WorkflowRun {
-  id          String      @id @default(uuid())
+  id          String    @id @default(uuid())
   templateId  String
   triggeredBy String
-  status      RunStatus   @default(PENDING)
+  status      RunStatus @default(PENDING)
   input       Json
   output      Json?
   startedAt   DateTime?
   completedAt DateTime?
-  createdAt   DateTime    @default(now())
+  createdAt   DateTime  @default(now())
 
-  template    WorkflowTemplate @relation(fields: [templateId], references: [id])
-  user        User             @relation(fields: [triggeredBy], references: [id])
-  steps       WorkflowStep[]
+  template WorkflowTemplate @relation(fields: [templateId], references: [id])
+  user     User             @relation(fields: [triggeredBy], references: [id])
+  steps    WorkflowStep[]
 }
 
 model WorkflowStep {
@@ -124,9 +139,9 @@ model WorkflowStep {
   completedAt DateTime?
   createdAt   DateTime  @default(now())
 
-  run         WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  agent       Agent       @relation(fields: [agentId], references: [id])
-  llmCalls    LlmCall[]
+  run      WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  agent    Agent       @relation(fields: [agentId], references: [id])
+  llmCalls LlmCall[]
 }
 
 // ─────────────────────────────────────────────
@@ -144,7 +159,34 @@ model LlmCall {
   durationMs       Int?
   createdAt        DateTime @default(now())
 
-  step             WorkflowStep? @relation(fields: [stepId], references: [id])
+  step WorkflowStep? @relation(fields: [stepId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Chat
+// ─────────────────────────────────────────────
+
+model Conversation {
+  id        String   @id @default(uuid())
+  userId    String
+  agentId   String?
+  title     String?
+  createdAt DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent    Agent?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  messages Message[]
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String
+  role           MessageRole
+  content        String
+  status         MessageStatus @default(PENDING)
+  createdAt      DateTime      @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
 // ─────────────────────────────────────────────
@@ -152,12 +194,12 @@ model LlmCall {
 // ─────────────────────────────────────────────
 
 model NotionConnection {
-  id             String   @id @default(uuid())
-  accessToken    String   // encrypted at application layer
-  workspaceId    String   @unique
-  workspaceName  String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id            String   @id @default(uuid())
+  accessToken   String // encrypted at application layer
+  workspaceId   String   @unique
+  workspaceName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model ProviderConfig {
