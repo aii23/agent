@@ -1,6 +1,12 @@
-import { PrismaClient, AgentType } from '@prisma/client'
+import { config } from 'dotenv'
+config({ path: '.env.local' })
+config()
 
-const prisma = new PrismaClient()
+import { PrismaClient, AgentType } from '@prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
+
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
+const prisma = new PrismaClient({ adapter })
 
 async function main() {
   // ─── Managers ─────────────────────────────────────────────────────────────
