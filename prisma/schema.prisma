@@ -13,10 +13,9 @@ datasource db {
 // Enums
 // ─────────────────────────────────────────────
 
-enum LlmTier {
-  HIGH
-  STANDARD
-  FAST
+enum AgentType {
+  MANAGER
+  EXECUTOR
 }
 
 enum RunStatus {
@@ -56,18 +55,26 @@ model Session {
 // ─────────────────────────────────────────────
 
 model Agent {
-  id           String   @id @default(uuid())
-  slug         String   @unique
+  id           String    @id @default(uuid())
+  slug         String    @unique
   name         String
   role         String
   systemPrompt String
-  tools        Json     @default("[]")
-  tier         LlmTier  @default(STANDARD)
+  tools        Json      @default("[]")
+  model        String    @default("claude-sonnet")
   inputSchema  Json?
   outputSchema Json?
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  description  String?
+  agentType    AgentType @default(EXECUTOR)
+  notionScope  Json?
+  maxSteps     Int       @default(8)
+
+  delegatesTo  Agent[]   @relation("AgentDelegation")
+  delegatedBy  Agent[]   @relation("AgentDelegation")
 
   workflowSteps WorkflowStep[]
 }
