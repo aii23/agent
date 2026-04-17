@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
-import { Send, ChevronDown, Check, Loader2, MessageSquare } from 'lucide-react'
+import { Send, ChevronDown, Check, Loader2, MessageSquare, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { trpc } from '@/lib/trpc'
 
@@ -100,7 +100,14 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
 
   function handleSend() {
     if (!input.trim() || !conversationId || addMessage.isPending) return
-    addMessage.mutate({ conversationId, role: 'user', content: input.trim() })
+
+    // On the first message, lock the selected agent to this conversation.
+    // 'Auto' means no preference — backend picks the default MANAGER agent.
+    const agentSlug = !conversation?.agentId && selectedAgent !== 'Auto'
+      ? selectedAgent.toLowerCase()
+      : undefined
+
+    addMessage.mutate({ conversationId, role: 'user', content: input.trim(), agentSlug })
     setInput('')
   }
 
@@ -112,6 +119,7 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
   }
 
   const agent = agentConfig[selectedAgent]
+  const isAgentLocked = !!conversation?.agentId
 
   return (
     <div
@@ -123,15 +131,24 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
         <span className="text-xs text-zinc-500">Agent:</span>
         <div className="relative" onClick={(e) => e.stopPropagation()}>
           <button
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium hover:bg-zinc-800 transition-colors"
+            onClick={isAgentLocked ? undefined : () => setDropdownOpen(!dropdownOpen)}
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium',
+              isAgentLocked
+                ? 'cursor-default opacity-80'
+                : 'hover:bg-zinc-800 transition-colors cursor-pointer'
+            )}
           >
             <span className={cn('w-2 h-2 rounded-full shrink-0', agent.dot)} />
             <span className="text-zinc-200">@{selectedAgent}</span>
-            <ChevronDown className="w-3 h-3 text-zinc-500" />
+            {isAgentLocked ? (
+              <Lock className="w-3 h-3 text-zinc-600" />
+            ) : (
+              <ChevronDown className="w-3 h-3 text-zinc-500" />
+            )}
           </button>
 
-          {dropdownOpen && (
+          {dropdownOpen && !isAgentLocked && (
             <div className="absolute top-full left-0 mt-1.5 w-56 rounded-xl border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50 py-1 z-20">
               {agentEntries.map(([key, cfg]) => (
                 <button
@@ -167,7 +184,9 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
         <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-6">
           <p className="text-sm font-medium text-zinc-400">Start the conversation</p>
           <p className="text-xs text-zinc-600">
-            Send a message to @{selectedAgent} below
+            {isAgentLocked
+              ? `Send a message to @${selectedAgent} below`
+              : 'Pick an agent above, then send your first message'}
           </p>
         </div>
       ) : (

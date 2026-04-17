@@ -13,6 +13,9 @@
     "seed": "npx tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.70",
+    "@ai-sdk/google": "^3.0.64",
+    "@ai-sdk/openai": "^3.0.53",
     "@hookform/resolvers": "^3.9.1",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
@@ -48,6 +51,7 @@
     "@trpc/react-query": "^11.16.0",
     "@trpc/server": "^11.16.0",
     "@vercel/analytics": "1.6.1",
+    "ai": "^6.0.167",
     "autoprefixer": "^10.4.20",
     "bullmq": "^5.67.2",
     "class-variance-authority": "^0.7.1",

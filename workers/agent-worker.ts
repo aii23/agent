@@ -1,7 +1,9 @@
 /**
  * Agent Worker
  *
- * Picks up jobs from the `agent-queue` BullMQ queue and processes them.
+ * Picks up jobs from the `agent-queue` BullMQ queue and dispatches them
+ * to the appropriate orchestrator handler based on job name.
+ *
  * Run locally:   pnpm worker
  * Watch mode:    pnpm worker          (tsx watch — auto-restarts on code change)
  * Single run:    pnpm worker:once
@@ -10,6 +12,10 @@
 import { Worker, type Job } from "bullmq";
 import { redis } from "../lib/redis";
 import type { AgentJobData, AgentJobName } from "../lib/queue";
+import type { ManagerPlanJobData, ExecutorRunJobData, ManagerSynthesizeJobData } from "../lib/queue";
+import { handleManagerPlan } from "../orchestrator/plan";
+import { handleExecutorRun } from "../orchestrator/execute";
+import { handleManagerSynthesize } from "../orchestrator/synthesize";
 
 // Load .env when running outside Next.js
 import { config } from "dotenv";
@@ -18,27 +24,26 @@ config({ path: ".env.local" });
 const QUEUE_NAME = "agent-queue";
 const CONCURRENCY = 5;
 
-// ── Job processor ──────────────────────────────────────────────────────────
+// ── Job dispatcher ─────────────────────────────────────────────────────────
 
 async function processAgentJob(
   job: Job<AgentJobData, void, AgentJobName>
 ): Promise<void> {
-  const { runId, conversationId, agentSlug, userMessage, mode } = job.data;
+  console.log(`[worker] job ${job.id} — name="${job.name}"`);
 
-  console.log(
-    `[worker] processing job ${job.id} — agent="${agentSlug}" run="${runId}" mode="${mode}"`
-  );
+  switch (job.name) {
+    case "manager.plan":
+      return handleManagerPlan(job.data as ManagerPlanJobData);
 
-  // TODO Day 1 Block 3: replace this stub with the real agent execution
-  // import { executeAgent } from "../agents/registry"
-  // await executeAgent({ runId, agentSlug, userMessage, conversationId, mode })
+    case "executor.run":
+      return handleExecutorRun(job.data as ExecutorRunJobData);
 
-  // Simulate work
-  await new Promise((r) => setTimeout(r, 500));
+    case "manager.synthesize":
+      return handleManagerSynthesize(job.data as ManagerSynthesizeJobData);
 
-  console.log(
-    `[worker] completed job ${job.id} — agent="${agentSlug}" message="${userMessage.slice(0, 60)}"`
-  );
+    default:
+      throw new Error(`Unknown job name: ${job.name}`);
+  }
 }
 
 // ── Worker instance ────────────────────────────────────────────────────────
@@ -61,11 +66,11 @@ worker.on("ready", () => {
 });
 
 worker.on("completed", (job) => {
-  console.log(`[worker] ✓ job ${job.id} completed`);
+  console.log(`[worker] ✓ job ${job.id} (${job.name}) completed`);
 });
 
 worker.on("failed", (job, err) => {
-  console.error(`[worker] ✗ job ${job?.id} failed:`, err.message);
+  console.error(`[worker] ✗ job ${job?.id} (${job?.name}) failed:`, err.message);
 });
 
 worker.on("error", (err) => {

@@ -25,13 +25,11 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not authenticated' })
   }
 
-  const user = await ctx.prisma.user.findUnique({
+  const user = await ctx.prisma.user.upsert({
     where: { walletAddress: ctx.session.address },
+    create: { walletAddress: ctx.session.address },
+    update: {},
   })
-
-  if (!user) {
-    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'User not found' })
-  }
 
   return next({ ctx: { ...ctx, user } })
 })

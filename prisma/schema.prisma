@@ -26,6 +26,21 @@ enum RunStatus {
   FAILED
 }
 
+enum ExecutionPlanStatus {
+  PLANNING
+  EXECUTING
+  SYNTHESIZING
+  DONE
+  FAILED
+}
+
+enum StepStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
 enum MessageRole {
   user
   assistant
@@ -175,7 +190,8 @@ model Conversation {
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   agent    Agent?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  messages Message[]
+  messages       Message[]
+  executionPlans ExecutionPlan[]
 }
 
 model Message {
@@ -187,6 +203,42 @@ model Message {
   createdAt      DateTime      @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// Execution Engine (chat-driven orchestration)
+// ─────────────────────────────────────────────
+
+model ExecutionPlan {
+  id               String              @id @default(uuid())
+  conversationId   String
+  messageId        String              // triggering user Message id
+  managerSlug      String
+  status           ExecutionPlanStatus @default(PLANNING)
+  steps            Json                // PlanStep[] — raw templates from manager LLM call
+  currentStepIndex Int                 @default(0)
+  managerThread    Json?               // CoreMessage[] — saved LLM thread for synthesis
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  executionSteps ExecutionStep[]
+}
+
+model ExecutionStep {
+  id              String     @id @default(uuid())
+  executionPlanId String
+  stepIndex       Int
+  agentSlug       String
+  resolvedPrompt  String
+  output          String?
+  status          StepStatus @default(PENDING)
+  createdAt       DateTime   @default(now())
+  completedAt     DateTime?
+
+  plan ExecutionPlan @relation(fields: [executionPlanId], references: [id], onDelete: Cascade)
+
+  @@unique([executionPlanId, stepIndex])
 }
 
 // ─────────────────────────────────────────────

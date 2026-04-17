@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { MessageRole, MessageStatus } from '@prisma/client'
+import { AgentType, MessageRole, MessageStatus } from '@prisma/client'
 import { router, protectedProcedure, TRPCError } from '../trpc'
-import { enqueueAgentRun } from '@/lib/queue'
+import { enqueueManagerPlan } from '@/lib/queue'
 
 const messageSelect = {
   id: true,
@@ -136,10 +136,13 @@ export const conversationsRouter = router({
         role: z.nativeEnum(MessageRole),
         content: z.string().min(1),
         status: z.nativeEnum(MessageStatus).optional().default(MessageStatus.DONE),
+        // Provided on the first user message to lock an agent to this conversation.
+        // Pass the agent slug (e.g. "ceo") or omit to auto-assign the first MANAGER agent.
+        agentSlug: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const conversation = await ctx.prisma.conversation.findUnique({
+      let conversation = await ctx.prisma.conversation.findUnique({
         where: { id: input.conversationId },
         select: {
           userId: true,
@@ -151,6 +154,39 @@ export const conversationsRouter = router({
       if (!conversation) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversation not found' })
       if (conversation.userId !== ctx.user.id) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' })
+      }
+
+      // On the first user message, lock an agent to this conversation.
+      if (input.role === MessageRole.user && !conversation.agentId) {
+        let agentId: string
+
+        if (input.agentSlug) {
+          const agent = await ctx.prisma.agent.findUnique({
+            where: { slug: input.agentSlug },
+            select: { id: true, slug: true },
+          })
+          if (!agent) throw new TRPCError({ code: 'NOT_FOUND', message: `Agent "${input.agentSlug}" not found` })
+          agentId = agent.id
+        } else {
+          // Auto: pick the first active MANAGER agent as the default orchestrator.
+          const defaultAgent = await ctx.prisma.agent.findFirst({
+            where: { agentType: AgentType.MANAGER, isActive: true },
+            select: { id: true, slug: true },
+            orderBy: { createdAt: 'asc' },
+          })
+          if (!defaultAgent) {
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'No active agents available' })
+          }
+          agentId = defaultAgent.id
+        }
+
+        const updated = await ctx.prisma.conversation.update({
+          where: { id: input.conversationId },
+          data: { agentId },
+          select: { agentId: true, agent: { select: { slug: true } } },
+        })
+
+        conversation = { ...conversation, agentId: updated.agentId, agent: updated.agent }
       }
 
       if (input.role === MessageRole.user && !conversation.agent) {
@@ -171,13 +207,10 @@ export const conversationsRouter = router({
       })
 
       if (input.role === MessageRole.user) {
-        await enqueueAgentRun({
-          runId: crypto.randomUUID(),
+        await enqueueManagerPlan({
           conversationId: input.conversationId,
           messageId: message.id,
           agentSlug: conversation.agent!.slug,
-          userMessage: input.content,
-          mode: 'inline',
         })
       }
 
