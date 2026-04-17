@@ -142,7 +142,8 @@ export const conversationsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      let conversation = await ctx.prisma.conversation.findUnique({
+      // ── Step 1: validate ownership (read-only, outside transaction) ──────
+      const conversation = await ctx.prisma.conversation.findUnique({
         where: { id: input.conversationId },
         select: {
           userId: true,
@@ -156,17 +157,22 @@ export const conversationsRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' })
       }
 
-      // On the first user message, lock an agent to this conversation.
-      if (input.role === MessageRole.user && !conversation.agentId) {
-        let agentId: string
+      // ── Step 2: resolve agent (reads only, outside transaction) ──────────
+      // We do this before the transaction so we can validate upfront and avoid
+      // partial writes if the agent doesn't exist.
+      let resolvedAgentId: string | null = conversation.agentId ?? null
+      let resolvedAgentSlug: string | null = conversation.agent?.slug ?? null
+      let agentNeedsAssignment = false
 
+      if (input.role === MessageRole.user && !conversation.agentId) {
         if (input.agentSlug) {
           const agent = await ctx.prisma.agent.findUnique({
             where: { slug: input.agentSlug },
             select: { id: true, slug: true },
           })
           if (!agent) throw new TRPCError({ code: 'NOT_FOUND', message: `Agent "${input.agentSlug}" not found` })
-          agentId = agent.id
+          resolvedAgentId = agent.id
+          resolvedAgentSlug = agent.slug
         } else {
           // Auto: pick the first active MANAGER agent as the default orchestrator.
           const defaultAgent = await ctx.prisma.agent.findFirst({
@@ -177,41 +183,71 @@ export const conversationsRouter = router({
           if (!defaultAgent) {
             throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'No active agents available' })
           }
-          agentId = defaultAgent.id
+          resolvedAgentId = defaultAgent.id
+          resolvedAgentSlug = defaultAgent.slug
         }
-
-        const updated = await ctx.prisma.conversation.update({
-          where: { id: input.conversationId },
-          data: { agentId },
-          select: { agentId: true, agent: { select: { slug: true } } },
-        })
-
-        conversation = { ...conversation, agentId: updated.agentId, agent: updated.agent }
+        agentNeedsAssignment = true
       }
 
-      if (input.role === MessageRole.user && !conversation.agent) {
+      if (input.role === MessageRole.user && !resolvedAgentSlug) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
           message: 'Conversation has no agent assigned — cannot process user message',
         })
       }
 
-      const message = await ctx.prisma.message.create({
-        data: {
-          conversationId: input.conversationId,
-          role: input.role,
-          content: input.content,
-          status: input.status,
-        },
-        select: messageSelect,
+      // ── Step 3: DB transaction — assign agent (if needed) + create message ─
+      // Both writes happen atomically: either both succeed or both roll back.
+      const message = await ctx.prisma.$transaction(async (tx) => {
+        if (agentNeedsAssignment && resolvedAgentId) {
+          await tx.conversation.update({
+            where: { id: input.conversationId },
+            data: { agentId: resolvedAgentId },
+          })
+        }
+
+        return tx.message.create({
+          data: {
+            conversationId: input.conversationId,
+            role: input.role,
+            content: input.content,
+            status: input.status,
+          },
+          select: messageSelect,
+        })
       })
 
+      // ── Step 4: enqueue Redis job ─────────────────────────────────────────
+      // If enqueue fails we compensate by rolling back the DB writes so the
+      // client never gets a message that will never be processed.
       if (input.role === MessageRole.user) {
-        await enqueueManagerPlan({
-          conversationId: input.conversationId,
-          messageId: message.id,
-          agentSlug: conversation.agent!.slug,
-        })
+        try {
+          await enqueueManagerPlan({
+            conversationId: input.conversationId,
+            messageId: message.id,
+            agentSlug: resolvedAgentSlug!,
+          })
+        } catch (err) {
+          // Compensating rollback: undo message creation and agent assignment.
+          await ctx.prisma.$transaction(async (tx) => {
+            await tx.message.delete({ where: { id: message.id } })
+            if (agentNeedsAssignment) {
+              await tx.conversation.update({
+                where: { id: input.conversationId },
+                data: { agentId: null },
+              })
+            }
+          }).catch((rollbackErr) => {
+            // Log but don't swallow — the original error is more important.
+            console.error('[addMessage] compensating rollback failed:', rollbackErr)
+          })
+
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to queue message for processing — please try again',
+            cause: err,
+          })
+        }
       }
 
       return message

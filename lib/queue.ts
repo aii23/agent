@@ -1,5 +1,5 @@
-import { Queue, QueueEvents } from "bullmq";
-import { redis } from "./redis";
+import { Job, Queue, QueueEvents } from "bullmq";
+import { redis, createQueueProducerClient } from "./redis";
 
 // ── Job payload types ──────────────────────────────────────────────────────
 
@@ -33,10 +33,14 @@ export type AgentJobData =
 
 // ── Queue ──────────────────────────────────────────────────────────────────
 
+// Fail-fast connection: throws immediately when Redis is unavailable so callers
+// get an explicit error instead of a silently buffered command.
+const queueProducerConnection = createQueueProducerClient();
+
 export const agentQueue = new Queue<AgentJobData, void, AgentJobName>(
   "agent-queue",
   {
-    connection: redis,
+    connection: queueProducerConnection,
     defaultJobOptions: {
       attempts: 3,
       backoff: {
@@ -57,29 +61,57 @@ export const agentQueueEvents = new QueueEvents("agent-queue", {
 
 // ── Enqueue helpers ────────────────────────────────────────────────────────
 
+async function enqueueJob(
+  name: AgentJobName,
+  data: AgentJobData,
+  jobId: string
+): Promise<string> {
+  let job: Job<AgentJobData, void, AgentJobName>;
+
+  try {
+    job = await agentQueue.add(name, data, { jobId });
+  } catch (err) {
+    throw new Error(
+      `Failed to enqueue "${name}" job (jobId=${jobId}): ${(err as Error).message}`,
+      { cause: err }
+    );
+  }
+
+  if (!job.id) {
+    throw new Error(
+      `Enqueue "${name}" (jobId=${jobId}) returned no job ID — job may not have been added`
+    );
+  }
+
+  return job.id;
+}
+
 export async function enqueueManagerPlan(
   data: ManagerPlanJobData
 ): Promise<string> {
-  const job = await agentQueue.add("manager.plan", data, {
-    jobId: `plan:${data.conversationId}:${data.messageId}`,
-  });
-  return job.id!;
+  return enqueueJob(
+    "manager.plan",
+    data,
+    `plan:${data.conversationId}:${data.messageId}`
+  );
 }
 
 export async function enqueueExecutorRun(
   data: ExecutorRunJobData
 ): Promise<string> {
-  const job = await agentQueue.add("executor.run", data, {
-    jobId: `exec:${data.executionPlanId}:${data.stepIndex}`,
-  });
-  return job.id!;
+  return enqueueJob(
+    "executor.run",
+    data,
+    `exec:${data.executionPlanId}:${data.stepIndex}`
+  );
 }
 
 export async function enqueueManagerSynthesize(
   data: ManagerSynthesizeJobData
 ): Promise<string> {
-  const job = await agentQueue.add("manager.synthesize", data, {
-    jobId: `synth:${data.executionPlanId}`,
-  });
-  return job.id!;
+  return enqueueJob(
+    "manager.synthesize",
+    data,
+    `synth:${data.executionPlanId}`
+  );
 }

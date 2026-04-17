@@ -37,3 +37,20 @@ export function createSubscriberClient(): Redis {
     enableReadyCheck: false,
   });
 }
+
+// Fail-fast connection for Queue producers (API layer).
+// enableOfflineQueue: false ensures Queue.add() throws immediately when Redis
+// is unavailable instead of silently buffering the command forever.
+export function createQueueProducerClient(): Redis {
+  const client = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: 3,
+    enableOfflineQueue: false,
+    enableReadyCheck: false,
+  });
+
+  client.on("error", (err) => {
+    console.error("[redis:queue-producer] connection error:", err.message);
+  });
+
+  return client;
+}
