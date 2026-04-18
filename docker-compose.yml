@@ -37,7 +37,9 @@ services:
 
   # ── Agent Worker ───────────────────────────────────────────────────────────
   worker:
-    image: ${WORKER_IMAGE:-yourusername/praxis-worker:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     env_file:
       - .env.server
     environment:
