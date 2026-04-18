@@ -220,6 +220,7 @@ model ExecutionPlan {
   managerThread    Json?               // CoreMessage[] — saved LLM thread for synthesis
   notionPageIds    String[]            @default([]) // page IDs selected by manager during planning
   notionContext    String?             // compressed Notion context injected into executor prompts
+  synthesisPrompt String?             // LLM-authored synthesis instruction; use {{executorResults}} as the injection point
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 

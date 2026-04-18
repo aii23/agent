@@ -23,6 +23,11 @@ const PlanStepSchema = z.object({
 // Anthropic's structured output rejects. Enforce limits in code after parsing.
 const ExecutionPlanSchema = z.object({
   steps: z.array(PlanStepSchema),
+  synthesisPrompt: z
+    .string()
+    .describe(
+      "A specific instruction for the synthesis step. Must include the literal placeholder {{executorResults}} exactly once — that token will be replaced with the concatenated executor outputs at synthesis time. The prompt should reference the user's goal, describe the desired output format, and explain how to weigh or combine the results. Do not be generic.",
+    ),
 });
 
 // Schema for the context-request step: which Notion pages are relevant?
@@ -149,19 +154,27 @@ Do not include pages just because they sound related — only include pages whos
 You have access to the following executor agents:
 ${availableExecutors}
 ${contextSection}
-When responding, produce an execution plan as a structured list of steps.
-Each step must reference one of the executor agents listed above.
-Use {{userRequest}} in promptTemplate to refer to the user's request.
-Use {{notionContext}} in promptTemplate to inject the workspace context into an executor prompt.
-Use {{steps[N].output}} to reference the output of a previous step (0-indexed).
-Maximum 8 steps.`;
+When responding, produce an execution plan as a structured list of steps, plus a synthesisPrompt.
+
+Steps:
+- Each step must reference one of the executor agents listed above.
+- Use {{userRequest}} in promptTemplate to refer to the user's request.
+- Use {{notionContext}} in promptTemplate to inject the workspace context into an executor prompt.
+- Use {{steps[N].output}} to reference the output of a previous step (0-indexed).
+- Maximum 8 steps.
+
+synthesisPrompt:
+- Write a specific instruction that tells the manager how to synthesize the executor results into a final response.
+- Include the placeholder {{executorResults}} exactly once — it will be replaced with the concatenated outputs of all executor steps.
+- Reference the user's original goal and the expected shape of the final response (e.g. format, length, tone, which executor output to prioritise).
+- Do not write a generic "please summarise" instruction — make it specific to this request.`;
 
   const messages: ModelMessage[] = [
     ...priorMessages,
     { role: "user", content: userMessage.content },
   ];
 
-  let plan: { steps: PlanStep[] };
+  let plan: { steps: PlanStep[]; synthesisPrompt: string };
 
   try {
     // 6. Call LLM to generate execution plan
@@ -277,6 +290,7 @@ Maximum 8 steps.`;
       managerThread: managerThread as object[],
       notionPageIds: selectedPageIds,
       notionContext: notionContext || null,
+      synthesisPrompt: plan.synthesisPrompt,
     },
   });
 

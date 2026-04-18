@@ -40,9 +40,15 @@ export async function handleManagerSynthesize(
     .map((step, i) => `## Step ${i + 1} — ${step.agentSlug}\n\n${step.output}`)
     .join("\n\n---\n\n");
 
+  // Use the planner-authored prompt when available; fall back to a generic
+  // instruction only for plans created before this field existed.
+  const synthesisContent = plan.synthesisPrompt
+    ? plan.synthesisPrompt.replace("{{executorResults}}", executorResultsText)
+    : `Here are the results from the executor agents:\n\n${executorResultsText}\n\nPlease synthesize these results into a final response for the user.`;
+
   const synthesisUserMessage: ModelMessage = {
     role: "user",
-    content: `Here are the results from the executor agents:\n\n${executorResultsText}\n\nPlease synthesize these results into a final response for the user.`,
+    content: synthesisContent,
   };
 
   const messages: ModelMessage[] = [...managerThread, synthesisUserMessage];
