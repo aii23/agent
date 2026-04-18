@@ -324,34 +324,70 @@ async function upsertPage(page: RawPage, path: string, raw: string) {
   });
 }
 
-/** Process pages in batches to respect Notion rate limits */
+// Gemini free tier: 5 requests per minute → 1 request per 13s to stay safely under
+const GEMINI_RATE_LIMIT_DELAY_MS = 13_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Parse "Please retry in 16.6s" from a rate-limit error message */
+function parseRetryAfterMs(errMessage: string): number {
+  const match = errMessage.match(/retry in ([\d.]+)s/i);
+  if (match) return Math.ceil(parseFloat(match[1]) * 1000) + 1_000; // +1s buffer
+  return 60_000; // default: wait a full minute
+}
+
+/** Process pages sequentially to respect Gemini's 5 req/min free-tier limit */
 async function processBatches(
   pages: RawPage[],
   pageMap: Map<string, { title: string; parentId?: string }>,
-  batchSize = 8,
 ): Promise<number> {
   let synced = 0;
+  const eta = (remaining: number) => {
+    const secs = Math.round((remaining * GEMINI_RATE_LIMIT_DELAY_MS) / 1000);
+    return secs >= 60 ? `~${Math.ceil(secs / 60)}min` : `~${secs}s`;
+  };
 
-  for (let i = 0; i < pages.length; i += batchSize) {
-    const batch = pages.slice(i, i + batchSize);
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    const remaining = pages.length - i;
 
-    await Promise.all(
-      batch.map(async (page) => {
         try {
           const path = buildPath(page.id, pageMap);
-          console.log(`  [sync] fetching ${page.id} — ${path}`);
+          console.log(`  [sync] (${i + 1}/${pages.length}, eta ${eta(remaining)}) ${path}`);
           const raw = await fetchPageText(page.id);
           await upsertPage(page, path, raw);
           synced++;
           console.log(`  [sync] ✓ ${synced}/${pages.length} — ${path}`);
         } catch (err) {
-          console.error(
-            `  [sync] ✗ failed page ${page.id} (${page.title}):`,
-            (err as Error).message,
-          );
+          const msg = (err as Error).message ?? "";
+          if (msg.includes("quota") || msg.includes("rate") || msg.includes("retry in")) {
+            const waitMs = parseRetryAfterMs(msg);
+            console.warn(`  [sync] rate-limited — waiting ${Math.round(waitMs / 1000)}s before retrying ${page.title}`);
+            await sleep(waitMs);
+            // retry once after the enforced wait
+            try {
+              const path = buildPath(page.id, pageMap);
+              const raw = await fetchPageText(page.id);
+              await upsertPage(page, path, raw);
+              synced++;
+              console.log(`  [sync] ✓ (retry) ${synced}/${pages.length} — ${path}`);
+            } catch (retryErr) {
+              console.error(`  [sync] ✗ gave up on ${page.id} (${page.title}):`, (retryErr as Error).message);
+            }
+          } else {
+            console.error(
+              `  [sync] ✗ failed page ${page.id} (${page.title}):`,
+              (err as Error).message,
+            );
+          }
         }
-      }),
-    );
+
+    // Throttle: wait before next LLM call to stay under 5 req/min
+    if (i < pages.length - 1) {
+      await sleep(GEMINI_RATE_LIMIT_DELAY_MS);
+    }
   }
 
   return synced;
