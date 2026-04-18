@@ -92,7 +92,7 @@ export async function enqueueManagerPlan(
   return enqueueJob(
     "manager.plan",
     data,
-    `plan:${data.conversationId}:${data.messageId}`
+    `plan_${data.conversationId}_${data.messageId}`
   );
 }
 
@@ -102,7 +102,7 @@ export async function enqueueExecutorRun(
   return enqueueJob(
     "executor.run",
     data,
-    `exec:${data.executionPlanId}:${data.stepIndex}`
+    `exec_${data.executionPlanId}_${data.stepIndex}`
   );
 }
 
@@ -112,6 +112,6 @@ export async function enqueueManagerSynthesize(
   return enqueueJob(
     "manager.synthesize",
     data,
-    `synth:${data.executionPlanId}`
+    `synth_${data.executionPlanId}`
   );
 }

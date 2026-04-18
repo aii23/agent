@@ -91,7 +91,11 @@ worker.on("ready", async () => {
 });
 
 worker.on("completed", (job) => {
-  console.log(`[worker] ✓ job ${job.id} (${job.name}) completed`);
+  console.log(`[worker] ✓ job ${job.id} (${job.name}) completed in ${Date.now() - job.timestamp}ms`);
+});
+
+worker.on("active", (job) => {
+  console.log(`[worker] → job ${job.id} (${job.name}) started — data: ${JSON.stringify(job.data)}`);
 });
 
 worker.on("failed", (job, err) => {
