@@ -17,8 +17,10 @@ const PlanStepSchema = z.object({
   promptTemplate: z.string(),
 });
 
+// Note: .min()/.max() on arrays emit minItems/maxItems in JSON schema which
+// Anthropic's structured output rejects. Enforce limits in code after parsing.
 const ExecutionPlanSchema = z.object({
-  steps: z.array(PlanStepSchema).min(1).max(8),
+  steps: z.array(PlanStepSchema),
 });
 
 type PlanStep = z.infer<typeof PlanStepSchema>;
@@ -133,6 +135,13 @@ Maximum 8 steps.`;
     // ──────────────────────────────────────────────────────────────────────
 
     plan = result.output;
+
+    if (plan.steps.length === 0) {
+      throw new Error("Plan has 0 steps — LLM returned an empty plan.");
+    }
+    if (plan.steps.length > 8) {
+      throw new Error(`Plan has ${plan.steps.length} steps — exceeds maximum of 8.`);
+    }
   } catch (err) {
     const e = err as any;
     // ── DEBUG: full error anatomy ──────────────────────────────────────────
