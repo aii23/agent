@@ -12,7 +12,9 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm dlx prisma generate
+# DATABASE_URL is required by prisma.config.ts at generate time but never used
+# (generate reads the schema, it does not connect to the database)
+RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" pnpm dlx prisma generate
 
 # ── Runtime ──────────────────────────────────────────────────────────────────
 FROM base AS runner
