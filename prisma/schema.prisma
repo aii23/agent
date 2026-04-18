@@ -262,6 +262,7 @@ model NotionPage {
   title        String
   path         String                          // breadcrumb: "Strategy / Q3 / OKRs"
   summary      String                          // 1-2 sentence LLM-generated summary
+  isEmpty      Boolean  @default(false)        // true when raw content is blank — excluded from context
   parentId     String?                         // parent page ID, if any
   databaseId   String?                         // parent database ID, if a DB row
   lastEditedAt DateTime                        // from Notion last_edited_time
@@ -269,6 +270,7 @@ model NotionPage {
   raw          String?  @db.Text               // full plain-text content, refreshed on demand
 
   @@index([databaseId])
+  @@index([isEmpty])
   @@index([lastEditedAt])
   @@index([syncedAt])
 }

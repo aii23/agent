@@ -297,7 +297,9 @@ Be specific: include names, dates, numbers. No preamble. No other text.`;
 
 /** Upsert a single page into the NotionPage cache */
 async function upsertPage(page: RawPage, path: string, raw: string) {
-  const summary = await generatePageSummary(page.title, raw);
+  const isEmpty = !raw.trim();
+  // Skip LLM call for empty pages — no content to summarise
+  const summary = isEmpty ? "" : await generatePageSummary(page.title, raw);
 
   await prisma.notionPage.upsert({
     where: { id: page.id },
@@ -306,6 +308,7 @@ async function upsertPage(page: RawPage, path: string, raw: string) {
       title: page.title,
       path,
       summary,
+      isEmpty,
       parentId: page.parentId ?? null,
       databaseId: page.databaseId ?? null,
       lastEditedAt: page.lastEditedAt,
@@ -315,6 +318,7 @@ async function upsertPage(page: RawPage, path: string, raw: string) {
       title: page.title,
       path,
       summary,
+      isEmpty,
       parentId: page.parentId ?? null,
       databaseId: page.databaseId ?? null,
       lastEditedAt: page.lastEditedAt,
@@ -325,7 +329,7 @@ async function upsertPage(page: RawPage, path: string, raw: string) {
 }
 
 // Gemini free tier: 5 requests per minute → 1 request per 13s to stay safely under
-const GEMINI_RATE_LIMIT_DELAY_MS = 13_000;
+const GEMINI_RATE_LIMIT_DELAY_MS = 20_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -353,36 +357,47 @@ async function processBatches(
     const page = pages[i];
     const remaining = pages.length - i;
 
+    try {
+      const path = buildPath(page.id, pageMap);
+      console.log(
+        `  [sync] (${i + 1}/${pages.length}, eta ${eta(remaining)}) ${path}`,
+      );
+      const raw = await fetchPageText(page.id);
+      await upsertPage(page, path, raw);
+      synced++;
+      console.log(`  [sync] ✓ ${synced}/${pages.length} — ${path}`);
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      if (
+        msg.includes("quota") ||
+        msg.includes("rate") ||
+        msg.includes("retry in")
+      ) {
+        const waitMs = parseRetryAfterMs(msg);
+        console.warn(
+          `  [sync] rate-limited — waiting ${Math.round(waitMs / 1000)}s before retrying ${page.title}`,
+        );
+        await sleep(waitMs);
+        // retry once after the enforced wait
         try {
           const path = buildPath(page.id, pageMap);
-          console.log(`  [sync] (${i + 1}/${pages.length}, eta ${eta(remaining)}) ${path}`);
           const raw = await fetchPageText(page.id);
           await upsertPage(page, path, raw);
           synced++;
-          console.log(`  [sync] ✓ ${synced}/${pages.length} — ${path}`);
-        } catch (err) {
-          const msg = (err as Error).message ?? "";
-          if (msg.includes("quota") || msg.includes("rate") || msg.includes("retry in")) {
-            const waitMs = parseRetryAfterMs(msg);
-            console.warn(`  [sync] rate-limited — waiting ${Math.round(waitMs / 1000)}s before retrying ${page.title}`);
-            await sleep(waitMs);
-            // retry once after the enforced wait
-            try {
-              const path = buildPath(page.id, pageMap);
-              const raw = await fetchPageText(page.id);
-              await upsertPage(page, path, raw);
-              synced++;
-              console.log(`  [sync] ✓ (retry) ${synced}/${pages.length} — ${path}`);
-            } catch (retryErr) {
-              console.error(`  [sync] ✗ gave up on ${page.id} (${page.title}):`, (retryErr as Error).message);
-            }
-          } else {
-            console.error(
-              `  [sync] ✗ failed page ${page.id} (${page.title}):`,
-              (err as Error).message,
-            );
-          }
+          console.log(`  [sync] ✓ (retry) ${synced}/${pages.length} — ${path}`);
+        } catch (retryErr) {
+          console.error(
+            `  [sync] ✗ gave up on ${page.id} (${page.title}):`,
+            (retryErr as Error).message,
+          );
         }
+      } else {
+        console.error(
+          `  [sync] ✗ failed page ${page.id} (${page.title}):`,
+          (err as Error).message,
+        );
+      }
+    }
 
     // Throttle: wait before next LLM call to stay under 5 req/min
     if (i < pages.length - 1) {
@@ -464,6 +479,9 @@ export async function getNotionIndex(
     | undefined
     ? W
     : never = {};
+
+  // Always exclude empty pages from context — agents can't use them
+  (where as Record<string, unknown>).isEmpty = false;
 
   if (scope?.pageIds?.length || scope?.databaseIds?.length) {
     (where as Record<string, unknown>).OR = [
