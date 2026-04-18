@@ -99,6 +99,7 @@ async function fetchBlockText(
   notion: Client,
   blockId: string,
   depth = 0,
+  _apiCallCount = { n: 0 },
 ): Promise<string> {
   if (depth > 3) return "";
 
@@ -106,6 +107,7 @@ async function fetchBlockText(
   let cursor: string | undefined = undefined;
 
   do {
+    _apiCallCount.n++;
     const response = await notion.blocks.children.list({
       block_id: blockId,
       start_cursor: cursor,
@@ -117,13 +119,17 @@ async function fetchBlockText(
       if (text) texts.push(text);
 
       if (block.has_children) {
-        const childText = await fetchBlockText(notion, block.id, depth + 1);
+        const childText = await fetchBlockText(notion, block.id, depth + 1, _apiCallCount);
         if (childText) texts.push(childText);
       }
     }
 
     cursor = response.next_cursor ?? undefined;
   } while (cursor);
+
+  if (depth === 0 && _apiCallCount.n > 5) {
+    console.log(`    [fetch] ${blockId} — ${_apiCallCount.n} Notion API calls`);
+  }
 
   return texts.join("\n");
 }
@@ -363,10 +369,20 @@ async function processBatches(
       console.log(
         `  [sync] (${i + 1}/${pages.length}, eta ${eta(remaining)}) ${path}`,
       );
+
+      const t0 = Date.now();
       const raw = await fetchPageText(page.id);
+      const fetchMs = Date.now() - t0;
+
+      const t1 = Date.now();
       await upsertPage(page, path, raw);
+      const upsertMs = Date.now() - t1;
+
       synced++;
-      console.log(`  [sync] ✓ ${synced}/${pages.length} — ${path}`);
+      console.log(
+        `  [sync] ✓ ${synced}/${pages.length} — ${path}` +
+        ` | notion=${fetchMs}ms llm+db=${upsertMs}ms chars=${raw.length}`,
+      );
     } catch (err) {
       const msg = (err as Error).message ?? "";
       if (
