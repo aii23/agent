@@ -60,15 +60,34 @@ const worker = new Worker<AgentJobData, void, AgentJobName>(
   {
     connection: redis,
     concurrency: CONCURRENCY,
+    removeOnComplete: { count: 100 },  // keep last 100 completed jobs for inspection
+    removeOnFail: { count: 50 },       // keep last 50 failed jobs, discard the rest
   },
 );
 
 // ── Lifecycle events ───────────────────────────────────────────────────────
 
-worker.on("ready", () => {
+worker.on("ready", async () => {
   console.log(
     `[worker] ready — listening on queue="${QUEUE_NAME}" concurrency=${CONCURRENCY}`,
   );
+  // Log queue state on startup so stale jobs are visible immediately
+  const { Queue } = await import("bullmq");
+  const { createQueueProducerClient } = await import("../lib/redis");
+  const inspectConn = createQueueProducerClient();
+  const q = new Queue(QUEUE_NAME, { connection: inspectConn });
+  const [waiting, active, failed, delayed] = await Promise.all([
+    q.getWaitingCount(),
+    q.getActiveCount(),
+    q.getFailedCount(),
+    q.getDelayedCount(),
+  ]);
+  console.log(`[worker] queue state — waiting=${waiting} active=${active} failed=${failed} delayed=${delayed}`);
+  if (failed > 0) {
+    console.warn(`[worker] ⚠ ${failed} failed jobs in queue — run queue.clean() or inspect via Bull Board`);
+  }
+  await q.close();
+  inspectConn.disconnect();
 });
 
 worker.on("completed", (job) => {

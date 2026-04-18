@@ -6,11 +6,13 @@ import { enqueueExecutorRun } from "@/lib/queue";
 import type { ManagerPlanJobData } from "@/lib/queue";
 import { MessageRole, MessageStatus } from "@prisma/client";
 import type { ModelMessage } from "ai";
+import { getNotionIndex, formatNotionIndex } from "@/lib/notion-index";
+import { buildNotionContext } from "@/orchestrator/context";
 
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-// ── Plan step schema ───────────────────────────────────────────────────────
+// ── Schemas ────────────────────────────────────────────────────────────────
 
 const PlanStepSchema = z.object({
   agent: z.string(),
@@ -21,6 +23,11 @@ const PlanStepSchema = z.object({
 // Anthropic's structured output rejects. Enforce limits in code after parsing.
 const ExecutionPlanSchema = z.object({
   steps: z.array(PlanStepSchema),
+});
+
+// Schema for the context-request step: which Notion pages are relevant?
+const ContextRequestSchema = z.object({
+  pageIds: z.array(z.string()),
 });
 
 type PlanStep = z.infer<typeof PlanStepSchema>;
@@ -70,14 +77,82 @@ export async function handleManagerPlan(
     .map((e) => `- ${e.slug}: ${e.role}`)
     .join("\n");
 
+  // ── Phase A: Build Notion context ─────────────────────────────────────────
+  // Step A1 — Load the full workspace catalog (lightweight: id + path + summary).
+  //           No raw page content fetched yet, no LLM call.
+  console.log("3. Loading Notion workspace catalog");
+  const pageIndex = await getNotionIndex();
+  const catalogText = formatNotionIndex(pageIndex);
+
+  let selectedPageIds: string[] = [];
+  let notionContext = "";
+
+  if (pageIndex.length > 0) {
+    // Step A2 — Ask a cheap model which pages are relevant to this request.
+    //           The model sees only summaries (< 10 tokens/page), not full content.
+    console.log(
+      `4. Selecting relevant Notion pages from catalog (${pageIndex.length} pages)`,
+    );
+    try {
+      const contextRequest = await generateText({
+        model: resolveModel("claude-haiku"),
+        system: `You are a context selection assistant for an AI agent system.
+Given a user request and a catalog of Notion workspace pages (each with an ID, breadcrumb path, and one-sentence summary), select the IDs of pages that contain information genuinely useful for completing the request.
+Return an empty array if no pages are relevant.
+Do not include pages just because they sound related — only include pages whose content will meaningfully improve the agent's response.`,
+        prompt: `User request: "${userMessage.content}"\n\nAvailable pages:\n${catalogText}`,
+        output: Output.object({ schema: ContextRequestSchema }),
+      });
+
+      selectedPageIds = contextRequest.output.pageIds;
+      console.log(
+        `[plan:context] selected ${selectedPageIds.length} pages:`,
+        selectedPageIds,
+      );
+    } catch (err) {
+      // Context selection is best-effort — plan without context rather than fail
+      console.warn(
+        "[plan:context] Page selection failed, proceeding without context:",
+        (err as Error).message,
+      );
+    }
+
+    // Step A3 — Fetch and compress the full content of selected pages.
+    //           buildNotionContext does a second relevance pass at compression time.
+    if (selectedPageIds.length > 0) {
+      console.log("5. Building Notion context from selected pages");
+      try {
+        notionContext = await buildNotionContext(
+          selectedPageIds,
+          userMessage.content,
+        );
+        console.log(
+          `[plan:context] context built — ${notionContext.length} chars`,
+        );
+      } catch (err) {
+        console.warn(
+          "[plan:context] Context build failed, proceeding without context:",
+          (err as Error).message,
+        );
+      }
+    }
+  }
+
+  // ── Phase B: Generate execution plan ──────────────────────────────────────
+
+  const contextSection = notionContext
+    ? `\n\nRelevant context from the Notion workspace:\n${notionContext}\n`
+    : "";
+
   const systemPrompt = `${agent.systemPrompt}
 
 You have access to the following executor agents:
 ${availableExecutors}
-
+${contextSection}
 When responding, produce an execution plan as a structured list of steps.
 Each step must reference one of the executor agents listed above.
 Use {{userRequest}} in promptTemplate to refer to the user's request.
+Use {{notionContext}} in promptTemplate to inject the workspace context into an executor prompt.
 Use {{steps[N].output}} to reference the output of a previous step (0-indexed).
 Maximum 8 steps.`;
 
@@ -89,7 +164,7 @@ Maximum 8 steps.`;
   let plan: { steps: PlanStep[] };
 
   try {
-    // 3. Call LLM to generate execution plan
+    // 6. Call LLM to generate execution plan
     const resolvedModel = resolveModel(agent.model);
 
     // ── DEBUG: env & model resolution ─────────────────────────────────────
@@ -112,9 +187,10 @@ Maximum 8 steps.`;
     );
     console.log("[plan:debug] messages count     :", messages.length);
     console.log("[plan:debug] systemPrompt len   :", systemPrompt.length);
+    console.log("[plan:debug] notionContext len  :", notionContext.length);
     // ──────────────────────────────────────────────────────────────────────
 
-    console.log("3. Calling LLM to generate execution plan");
+    console.log("6. Calling LLM to generate execution plan");
     const result = await generateText({
       model: resolvedModel,
       system: systemPrompt,
@@ -140,7 +216,9 @@ Maximum 8 steps.`;
       throw new Error("Plan has 0 steps — LLM returned an empty plan.");
     }
     if (plan.steps.length > 8) {
-      throw new Error(`Plan has ${plan.steps.length} steps — exceeds maximum of 8.`);
+      throw new Error(
+        `Plan has ${plan.steps.length} steps — exceeds maximum of 8.`,
+      );
     }
   } catch (err) {
     const e = err as any;
@@ -169,8 +247,8 @@ Maximum 8 steps.`;
     throw err;
   }
 
-  // 4. Validate executor allowlist
-  console.log("4. Validating executor allowlist");
+  // Validate executor allowlist
+  console.log("Validating executor allowlist");
   const allowedSlugs = new Set(agent.delegatesTo.map((e) => e.slug));
   const invalidSteps = plan.steps.filter((s) => !allowedSlugs.has(s.agent));
 
@@ -180,14 +258,14 @@ Maximum 8 steps.`;
     throw new Error(msg);
   }
 
-  // 5. Save manager's LLM thread for synthesis (system + conversation + assistant plan)
-  console.log("5. Saving manager's LLM thread for synthesis");
+  // 6b. Save manager's LLM thread for synthesis (system + conversation + assistant plan)
+  console.log("6b. Saving manager's LLM thread for synthesis");
   const managerThread: ModelMessage[] = [
     { role: "user", content: userMessage.content },
   ];
 
-  // 6. Persist ExecutionPlan
-  console.log("6. Persisting ExecutionPlan");
+  // 7. Persist ExecutionPlan
+  console.log("7. Persisting ExecutionPlan");
   const executionPlan = await prisma.executionPlan.create({
     data: {
       conversationId,
@@ -197,11 +275,13 @@ Maximum 8 steps.`;
       steps: plan.steps,
       currentStepIndex: 0,
       managerThread: managerThread as object[],
+      notionPageIds: selectedPageIds,
+      notionContext: notionContext || null,
     },
   });
 
-  // 7. Enqueue first executor step
-  console.log("7. Enqueuing first executor step");
+  // 8. Enqueue first executor step
+  console.log("8. Enqueuing first executor step");
   await enqueueExecutorRun({
     executionPlanId: executionPlan.id,
     stepIndex: 0,
