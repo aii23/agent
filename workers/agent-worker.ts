@@ -12,14 +12,20 @@
 import { Worker, type Job } from "bullmq";
 import { redis } from "../lib/redis";
 import type { AgentJobData, AgentJobName } from "../lib/queue";
-import type { ManagerPlanJobData, ExecutorRunJobData, ManagerSynthesizeJobData } from "../lib/queue";
+import type {
+  ManagerPlanJobData,
+  ExecutorRunJobData,
+  ManagerSynthesizeJobData,
+} from "../lib/queue";
 import { handleManagerPlan } from "../orchestrator/plan";
 import { handleExecutorRun } from "../orchestrator/execute";
 import { handleManagerSynthesize } from "../orchestrator/synthesize";
 
-// Load .env when running outside Next.js
+// Load .env when running outside Next.js.
+// In Docker the env vars are injected by docker-compose, so these are no-ops.
 import { config } from "dotenv";
 config({ path: ".env.local" });
+config(); // fallback to .env if .env.local is absent
 
 const QUEUE_NAME = "agent-queue";
 const CONCURRENCY = 5;
@@ -27,7 +33,7 @@ const CONCURRENCY = 5;
 // ── Job dispatcher ─────────────────────────────────────────────────────────
 
 async function processAgentJob(
-  job: Job<AgentJobData, void, AgentJobName>
+  job: Job<AgentJobData, void, AgentJobName>,
 ): Promise<void> {
   console.log(`[worker] job ${job.id} — name="${job.name}"`);
 
@@ -54,14 +60,14 @@ const worker = new Worker<AgentJobData, void, AgentJobName>(
   {
     connection: redis,
     concurrency: CONCURRENCY,
-  }
+  },
 );
 
 // ── Lifecycle events ───────────────────────────────────────────────────────
 
 worker.on("ready", () => {
   console.log(
-    `[worker] ready — listening on queue="${QUEUE_NAME}" concurrency=${CONCURRENCY}`
+    `[worker] ready — listening on queue="${QUEUE_NAME}" concurrency=${CONCURRENCY}`,
   );
 });
 
@@ -70,7 +76,10 @@ worker.on("completed", (job) => {
 });
 
 worker.on("failed", (job, err) => {
-  console.error(`[worker] ✗ job ${job?.id} (${job?.name}) failed:`, err.message);
+  console.error(
+    `[worker] ✗ job ${job?.id} (${job?.name}) failed:`,
+    err.message,
+  );
 });
 
 worker.on("error", (err) => {

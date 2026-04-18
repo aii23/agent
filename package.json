@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint .",
     "worker": "npx tsx workers/agent-worker.ts",
-    "db:seed": "npx tsx prisma/seed.ts"
+    "db:seed": "npx tsx prisma/seed.ts",
+    "notion:sync": "npx tsx lib/notion-index.ts",
+    "notion:sync:incremental": "npx tsx lib/notion-index.ts --incremental"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"
@@ -18,6 +20,7 @@
     "@ai-sdk/google": "^3.0.64",
     "@ai-sdk/openai": "^3.0.53",
     "@hookform/resolvers": "^3.9.1",
+    "@notionhq/client": "^5.19.0",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "@radix-ui/react-accordion": "1.2.12",

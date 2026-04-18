@@ -218,6 +218,8 @@ model ExecutionPlan {
   steps            Json                // PlanStep[] — raw templates from manager LLM call
   currentStepIndex Int                 @default(0)
   managerThread    Json?               // CoreMessage[] — saved LLM thread for synthesis
+  notionPageIds    String[]            @default([]) // page IDs selected by manager during planning
+  notionContext    String?             // compressed Notion context injected into executor prompts
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
@@ -252,6 +254,23 @@ model NotionConnection {
   workspaceName String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// Cached Notion page index — populated by lib/notion-index.ts sync
+model NotionPage {
+  id           String   @id                   // Notion page ID
+  title        String
+  path         String                          // breadcrumb: "Strategy / Q3 / OKRs"
+  summary      String                          // 1-2 sentence LLM-generated summary
+  parentId     String?                         // parent page ID, if any
+  databaseId   String?                         // parent database ID, if a DB row
+  lastEditedAt DateTime                        // from Notion last_edited_time
+  syncedAt     DateTime @default(now())        // our last successful sync
+  raw          String?  @db.Text               // full plain-text content, refreshed on demand
+
+  @@index([databaseId])
+  @@index([lastEditedAt])
+  @@index([syncedAt])
 }
 
 model ProviderConfig {

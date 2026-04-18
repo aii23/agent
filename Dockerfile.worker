@@ -1,0 +1,39 @@
+FROM node:22-alpine AS base
+RUN npm install -g pnpm
+
+# ── Dependencies ─────────────────────────────────────────────────────────────
+FROM base AS deps
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# ── Builder (generate Prisma client) ────────────────────────────────────────
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN pnpm dlx prisma generate
+
+# ── Runtime ──────────────────────────────────────────────────────────────────
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Copy only what the worker needs
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/workers ./workers
+COPY --from=builder /app/orchestrator ./orchestrator
+COPY --from=builder /app/lib ./lib
+COPY --from=builder /app/types ./types
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+
+# Run as non-root
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 worker && \
+    chown -R worker:nodejs /app
+USER worker
+
+CMD ["pnpm", "worker"]
