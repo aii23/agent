@@ -1,12 +1,14 @@
 import { config } from "dotenv";
-import { defineConfig, env } from "prisma/config";
+import { defineConfig } from "prisma/config";
 
+// Load .env files for local dev. In Docker, DATABASE_URL is already in the
+// environment via docker-compose, so these are no-ops.
 config({ path: ".env.local" });
-config(); // fallback to .env
+config();
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
   datasource: {
-    url: env("DATABASE_URL"),
+    url: process.env.DATABASE_URL!,
   },
 });
