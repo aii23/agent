@@ -176,7 +176,7 @@ export async function buildNotionContext(
   const rawContentBlock = buildRawContentBlock(pages);
 
   const result = await generateText({
-    model: resolveModel("gemini-flash"),
+    model: resolveModel("claude-haiku"),
     maxOutputTokens,
     system: `You are a context extractor for an AI agent system.
 Given a set of Notion pages and a user's request, extract only the information relevant to completing that request.

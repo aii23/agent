@@ -284,7 +284,7 @@ Be specific: include names, dates, numbers. No preamble. No other text.`;
   const sampled = sampleContent(content, inputBudget);
 
   const result = await generateText({
-    model: resolveModel("gemini-flash"),
+    model: resolveModel("claude-haiku"),
     maxOutputTokens,
     system: systemPrompt,
     prompt: `Page title: ${title}\n\nContent:\n${sampled}`,
@@ -328,8 +328,9 @@ async function upsertPage(page: RawPage, path: string, raw: string) {
   });
 }
 
-// Gemini free tier: 5 requests per minute → 1 request per 13s to stay safely under
-const GEMINI_RATE_LIMIT_DELAY_MS = 20_000;
+// Anthropic Haiku has generous rate limits — a small delay prevents bursting
+// against per-minute token limits on very large workspaces (600+ pages).
+const GEMINI_RATE_LIMIT_DELAY_MS = 500;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
