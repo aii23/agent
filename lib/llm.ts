@@ -1,6 +1,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
 import { google } from "@ai-sdk/google";
+import { xai } from "@ai-sdk/xai";
 import type { LanguageModel } from "ai";
 
 import { config } from "dotenv";
@@ -11,6 +12,7 @@ const MODEL_REGISTRY: Record<string, LanguageModel> = {
   "claude-sonnet": anthropic("claude-sonnet-4-6"),
   "claude-haiku": anthropic("claude-haiku-4-5-20251001"),
   "gemini-flash": google("gemini-2.5-flash"),
+  grok: xai("grok-4.20-0309-reasoning"),
   // "gpt-4o-mini": openai("gpt-4o-mini"),
 };
 
