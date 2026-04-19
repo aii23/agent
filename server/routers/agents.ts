@@ -2,6 +2,11 @@ import { z } from 'zod'
 import { AgentType } from '@prisma/client'
 import { router, protectedProcedure, TRPCError } from '../trpc'
 
+function generateSlug(agentType: AgentType): string {
+  const prefix = agentType === AgentType.MANAGER ? 'manager' : 'executor'
+  return `${prefix}-${Date.now()}`
+}
+
 const agentDelegateSelect = {
   id: true,
   slug: true,
@@ -16,6 +21,29 @@ const agentWithDelegations = {
 } as const
 
 export const agentsRouter = router({
+  // POST /trpc/agents.create
+  create: protectedProcedure
+    .input(
+      z.object({
+        agentType: z.enum(['MANAGER', 'EXECUTOR']),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agentType = input.agentType as AgentType
+      const slug = generateSlug(agentType)
+      const label = agentType === AgentType.MANAGER ? 'Manager' : 'Executor'
+      return ctx.prisma.agent.create({
+        data: {
+          slug,
+          name: `New ${label}`,
+          role: 'Define this agent role',
+          systemPrompt: '',
+          agentType,
+        },
+        include: agentWithDelegations,
+      })
+    }),
+
   // GET /trpc/agents.list
   list: protectedProcedure.query(({ ctx }) =>
     ctx.prisma.agent.findMany({

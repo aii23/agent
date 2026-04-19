@@ -1,9 +1,9 @@
 'use client'
 
-import { Search } from 'lucide-react'
+import { Search, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import type { AgentListItem } from '@/types/agents'
+import type { AgentListItem, AgentType } from '@/types/agents'
 
 // Colour map keyed by slug — matches agentPillColors in conversation-list
 export const agentColors: Record<string, { pill: string; dot: string; dotFilled: string }> = {
@@ -53,10 +53,12 @@ interface AgentListProps {
   agents: AgentListItem[]
   activeId: string | null
   onSelect: (id: string) => void
+  onCreate: (agentType: AgentType) => void
+  creating?: AgentType | null
   loading?: boolean
 }
 
-export function AgentList({ agents, activeId, onSelect, loading }: AgentListProps) {
+export function AgentList({ agents, activeId, onSelect, onCreate, creating, loading }: AgentListProps) {
   const [search, setSearch] = useState('')
 
   const filtered = agents.filter(
@@ -102,12 +104,16 @@ export function AgentList({ agents, activeId, onSelect, loading }: AgentListProp
               agents={managers}
               activeId={activeId}
               onSelect={onSelect}
+              onCreate={() => onCreate('MANAGER')}
+              creating={creating === 'MANAGER'}
             />
             <AgentGroup
               label="Executors"
               agents={executors}
               activeId={activeId}
               onSelect={onSelect}
+              onCreate={() => onCreate('EXECUTOR')}
+              creating={creating === 'EXECUTOR'}
             />
           </>
         )}
@@ -121,19 +127,35 @@ function AgentGroup({
   agents,
   activeId,
   onSelect,
+  onCreate,
+  creating,
 }: {
   label: string
   agents: AgentListItem[]
   activeId: string | null
   onSelect: (id: string) => void
+  onCreate: () => void
+  creating: boolean
 }) {
-  if (agents.length === 0) return null
-
   return (
     <div className="mb-3 mt-2">
-      <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
-        {label}
-      </p>
+      <div className="flex items-center justify-between px-2 py-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+          {label}
+        </p>
+        <button
+          onClick={onCreate}
+          disabled={creating}
+          title={`Create ${label.slice(0, -1)}`}
+          className="w-4 h-4 flex items-center justify-center rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {creating ? (
+            <span className="w-2.5 h-2.5 rounded-full border border-zinc-500 border-t-transparent animate-spin" />
+          ) : (
+            <Plus className="w-3 h-3" />
+          )}
+        </button>
+      </div>
       <div className="space-y-0.5">
         {agents.map((agent) => {
           const colors = getColors(agent.slug)
@@ -153,7 +175,6 @@ function AgentGroup({
                 <span className="absolute left-0 inset-y-[5px] w-0.5 bg-indigo-500 rounded-r" />
               )}
               <div className="flex items-center gap-2">
-                {/* Filled circle for managers, outline for executors */}
                 <span
                   className={cn(
                     'w-2 h-2 rounded-full shrink-0',
@@ -175,6 +196,9 @@ function AgentGroup({
             </button>
           )
         })}
+        {agents.length === 0 && (
+          <p className="px-2 py-1.5 text-[11px] text-zinc-600 italic">No {label.toLowerCase()} yet</p>
+        )}
       </div>
     </div>
   )

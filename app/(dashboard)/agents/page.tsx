@@ -5,13 +5,32 @@ import { Bot } from 'lucide-react'
 import { AgentList } from '@/components/agents/agent-list'
 import { AgentDetail } from '@/components/agents/agent-detail'
 import { trpc } from '@/lib/trpc'
-import type { AgentListItem } from '@/types/agents'
+import type { AgentListItem, AgentType } from '@/types/agents'
 
 export default function AgentsPage() {
   const [activeId, setActiveId] = useState<string | null>(null)
-  const { data: agents = [], isLoading } = trpc.agents.list.useQuery()
+  const [creating, setCreating] = useState<AgentType | null>(null)
 
-  const listItems: AgentListItem[] = agents.map((a) => ({
+  const utils = trpc.useUtils()
+  const { data: agents = [], isLoading } = trpc.agents.list.useQuery()
+  const createMutation = trpc.agents.create.useMutation({
+    onSuccess: (newAgent: { id: string }) => {
+      utils.agents.list.invalidate()
+      setActiveId(newAgent.id)
+      setCreating(null)
+    },
+    onError: () => setCreating(null),
+  })
+
+  function handleCreate(agentType: AgentType) {
+    setCreating(agentType)
+    createMutation.mutate({ agentType })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const agentList = agents as any[]
+
+  const listItems: AgentListItem[] = agentList.map((a) => ({
     id: a.id,
     slug: a.slug,
     name: a.name,
@@ -19,7 +38,7 @@ export default function AgentsPage() {
     agentType: a.agentType,
   }))
 
-  const allExecutors: AgentListItem[] = agents
+  const allExecutors: AgentListItem[] = agentList
     .filter((a) => a.agentType === 'EXECUTOR')
     .map((a) => ({ id: a.id, slug: a.slug, name: a.name, role: a.role, agentType: a.agentType }))
 
@@ -29,6 +48,8 @@ export default function AgentsPage() {
         agents={listItems}
         activeId={activeId}
         onSelect={setActiveId}
+        onCreate={handleCreate}
+        creating={creating}
         loading={isLoading}
       />
 
