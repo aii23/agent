@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { MessageSquare, GitBranch, Activity, Bot, Settings, LogOut } from 'lucide-react'
+import { MessageSquare, GitBranch, Activity, Bot, Settings, LogOut, ListTree } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
 
@@ -10,6 +10,7 @@ const navItems = [
   { href: '/chat', label: 'Chat', icon: MessageSquare },
   { href: '/workflows', label: 'Workflows', icon: GitBranch },
   { href: '/runs', label: 'Runs', icon: Activity },
+  { href: '/executions', label: 'Executions', icon: ListTree },
   { href: '/agents', label: 'Agents', icon: Bot },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
