@@ -20,7 +20,10 @@ export function AgentDetail({ agentId, allExecutors }: AgentDetailProps) {
   const { data: agent, isLoading } = trpc.agents.byId.useQuery({ id: agentId })
 
   const updateMutation = trpc.agents.update.useMutation({
-    onSuccess: () => utils.agents.byId.invalidate({ id: agentId }),
+    onSuccess: () => {
+      utils.agents.byId.invalidate({ id: agentId })
+      utils.agents.list.invalidate()
+    },
   })
   const setDelegatesMutation = trpc.agents.setDelegates.useMutation({
     onSuccess: () => utils.agents.byId.invalidate({ id: agentId }),
@@ -28,6 +31,7 @@ export function AgentDetail({ agentId, allExecutors }: AgentDetailProps) {
 
   // Form state — synced from server on load/refetch
   const [name, setName] = useState('')
+  const [role, setRole] = useState('')
   const [description, setDescription] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
   const [model, setModel] = useState(DEFAULT_MODEL)
@@ -38,6 +42,7 @@ export function AgentDetail({ agentId, allExecutors }: AgentDetailProps) {
   useEffect(() => {
     if (!agent) return
     setName(agent.name)
+    setRole(agent.role)
     setDescription(agent.description ?? '')
     setSystemPrompt(agent.systemPrompt)
     setModel(agent.model)
@@ -49,6 +54,7 @@ export function AgentDetail({ agentId, allExecutors }: AgentDetailProps) {
     agent !== null &&
     agent !== undefined &&
     (name !== agent.name ||
+      role !== agent.role ||
       description !== (agent.description ?? '') ||
       systemPrompt !== agent.systemPrompt ||
       model !== agent.model ||
@@ -61,7 +67,7 @@ export function AgentDetail({ agentId, allExecutors }: AgentDetailProps) {
     if (!agent || !isDirty) return
     setSaveStatus('idle')
     try {
-      await updateMutation.mutateAsync({ id: agentId, name, description, systemPrompt, model, maxSteps })
+      await updateMutation.mutateAsync({ id: agentId, name, role, description, systemPrompt, model, maxSteps })
 
       if (agent.agentType === 'MANAGER') {
         await setDelegatesMutation.mutateAsync({ managerId: agentId, executorIds: delegateIds })
@@ -103,8 +109,8 @@ export function AgentDetail({ agentId, allExecutors }: AgentDetailProps) {
       <div className="shrink-0 px-6 pt-5 pb-4 border-b border-zinc-800">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-base font-semibold text-zinc-100">{agent.name}</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">{agent.role}</p>
+            <h2 className="text-base font-semibold text-zinc-100">{name || agent.name}</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">{role || agent.role}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {/* Type badge */}
@@ -132,6 +138,31 @@ export function AgentDetail({ agentId, allExecutors }: AgentDetailProps) {
 
       {/* Form body */}
       <div className="flex-1 px-6 py-5 space-y-5">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-widest text-zinc-500 mb-1.5">
+              Name
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Agent name"
+              className="w-full h-8 px-3 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-300 placeholder:text-zinc-600 outline-none focus:border-indigo-500/50 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-widest text-zinc-500 mb-1.5">
+              Role
+            </label>
+            <input
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              placeholder="e.g. Product Manager"
+              className="w-full h-8 px-3 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-300 placeholder:text-zinc-600 outline-none focus:border-indigo-500/50 transition-colors"
+            />
+          </div>
+        </div>
+
         <div>
           <label className="block text-[10px] font-semibold uppercase tracking-widest text-zinc-500 mb-1.5">
             Description

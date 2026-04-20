@@ -70,6 +70,7 @@ export const agentsRouter = router({
       z.object({
         id: z.string(),
         name: z.string().min(1).optional(),
+        role: z.string().min(1).optional(),
         description: z.string().optional(),
         systemPrompt: z.string().optional(),
         model: z.string().optional(),
