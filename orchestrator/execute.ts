@@ -58,6 +58,7 @@ export async function handleExecutorRun(
     currentStep.promptTemplate,
     triggerMessage.content,
     plan.executionSteps,
+    plan.notionContext ?? "",
   );
 
   // 5. Persist the step record as RUNNING (upsert handles BullMQ retries cleanly)
@@ -139,14 +140,18 @@ export async function handleExecutorRun(
 /**
  * Substitutes template variables in a step's promptTemplate:
  *   {{userRequest}}      → the original user message content
+ *   {{notionContext}}    → Notion workspace context fetched during planning
  *   {{steps[N].output}}  → the output of completed step N (0-indexed)
  */
 export function resolveTemplate(
   template: string,
   userRequest: string,
   completedSteps: Array<{ stepIndex: number; output: string | null }>,
+  notionContext: string = "",
 ): string {
   let resolved = template.replace(/\{\{userRequest\}\}/g, userRequest);
+
+  resolved = resolved.replace(/\{\{notionContext\}\}/g, notionContext);
 
   resolved = resolved.replace(
     /\{\{steps\[(\d+)\]\.output\}\}/g,
