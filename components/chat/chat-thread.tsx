@@ -79,6 +79,7 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
     feedbackId: string
     userMessage: string
   } | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { data: conversation, isLoading } = trpc.conversations.byId.useQuery(
     { id: conversationId! },
@@ -106,6 +107,13 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
     }
   }, [conversation?.agent])
 
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [input])
+
   function handleSend() {
     if (!input.trim() || !conversationId || addMessage.isPending) return
 
@@ -119,7 +127,7 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
     setInput('')
   }
 
-  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -345,21 +353,23 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
       {/* Input */}
       <div className="shrink-0 px-4 pb-4 pt-2 border-t border-zinc-800">
         <p className="text-[10px] text-zinc-600 mb-1.5 px-1">
-          Use <span className="text-zinc-500">@</span> to mention an agent directly · Enter to send
+          Use <span className="text-zinc-500">@</span> to mention an agent directly · Enter to send · Shift+Enter for new line
         </p>
-        <div className="flex items-center gap-3 bg-zinc-800 rounded-xl px-4 h-14 focus-within:ring-1 focus-within:ring-indigo-500/40 transition-all">
-          <input
+        <div className="flex items-end gap-3 bg-zinc-800 rounded-xl px-4 py-3 focus-within:ring-1 focus-within:ring-indigo-500/40 transition-all">
+          <textarea
+            ref={textareaRef}
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={conversationId ? `Message @${selectedAgent}…` : 'Select a conversation first'}
             disabled={!conversationId || addMessage.isPending}
-            className="flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-500 outline-none disabled:cursor-not-allowed"
+            className="flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-500 outline-none disabled:cursor-not-allowed resize-none overflow-y-auto max-h-48 leading-relaxed"
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || !conversationId || addMessage.isPending}
-            className="w-8 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shrink-0"
+            className="w-8 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shrink-0 mb-0.5"
           >
             {addMessage.isPending ? (
               <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
