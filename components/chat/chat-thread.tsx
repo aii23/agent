@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils'
 import { trpc } from '@/lib/trpc'
 import { FeedbackButton } from './feedback-button'
 import { FeedbackModal } from './feedback-modal'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 type AgentKey = 'Auto' | 'CEO' | 'CPO' | 'CMO' | 'CTO' | 'CFO' | 'CLO'
 
@@ -233,7 +235,56 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
                       msg.status === 'STREAMING' && 'after:inline-block after:w-1 after:h-3.5 after:bg-indigo-400 after:ml-0.5 after:animate-pulse after:rounded-sm after:align-middle'
                     )}
                   >
-                    {msg.content}
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-zinc-200">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-sm font-semibold mb-1.5 mt-2 first:mt-0">{children}</h3>,
+                        ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+                        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+                        em: ({ children }) => <em className="italic text-zinc-300">{children}</em>,
+                        blockquote: ({ children }) => (
+                          <blockquote className="border-l-2 border-indigo-500 pl-3 my-2 text-zinc-300 italic">
+                            {children}
+                          </blockquote>
+                        ),
+                        hr: () => <hr className="border-zinc-700 my-3" />,
+                        code: ({ children, className }) => {
+                          const isBlock = className?.includes('language-')
+                          return isBlock ? (
+                            <code className="block bg-zinc-900 rounded-lg p-3 my-2 text-xs font-mono text-zinc-200 overflow-x-auto whitespace-pre">
+                              {children}
+                            </code>
+                          ) : (
+                            <code className="bg-zinc-900 rounded px-1 py-0.5 text-xs font-mono text-indigo-300">
+                              {children}
+                            </code>
+                          )
+                        },
+                        table: ({ children }) => (
+                          <div className="overflow-x-auto my-2">
+                            <table className="text-xs border-collapse w-full">{children}</table>
+                          </div>
+                        ),
+                        th: ({ children }) => (
+                          <th className="border border-zinc-700 px-2 py-1 bg-zinc-900 font-semibold text-left">{children}</th>
+                        ),
+                        td: ({ children }) => (
+                          <td className="border border-zinc-700 px-2 py-1">{children}</td>
+                        ),
+                        a: ({ href, children }) => (
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline underline-offset-2 hover:text-indigo-300">
+                            {children}
+                          </a>
+                        ),
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
                   </div>
                   {msg.status === 'FAILED' && (
                     <p className="text-[10px] text-red-400 mt-1 px-1">Failed to generate response</p>
