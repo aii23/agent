@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { prisma } from "@/lib/prisma";
 import { resolveModel } from "@/lib/llm";
+import { TOOL_EXECUTORS, isToolAgent } from "@/lib/tools/registry";
 import { enqueueExecutorRun, enqueueManagerSynthesize } from "@/lib/queue";
 import type { ExecutorRunJobData } from "@/lib/queue";
 import { MessageRole, MessageStatus } from "@prisma/client";
@@ -84,14 +85,19 @@ export async function handleExecutorRun(
   let output: string;
 
   try {
-    // 6. Call executor LLM
-    const result = await generateText({
-      model: resolveModel(agent.model),
-      system: agent.systemPrompt,
-      prompt: resolvedPrompt,
-    });
-
-    output = result.text;
+    if (isToolAgent(currentStep.agent)) {
+      // 6a. Tool agent: call the server-side function directly, no LLM
+      console.log(`[execute] tool dispatch — agent="${currentStep.agent}"`);
+      output = await TOOL_EXECUTORS[currentStep.agent](resolvedPrompt);
+    } else {
+      // 6b. LLM agent: call the model
+      const result = await generateText({
+        model: resolveModel(agent.model),
+        system: agent.systemPrompt,
+        prompt: resolvedPrompt,
+      });
+      output = result.text;
+    }
   } catch (err) {
     await prisma.executionStep.update({
       where: { id: executionStep.id },

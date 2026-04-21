@@ -25,6 +25,7 @@ type AgentSeed = {
   model: string;
   maxSteps?: number;
   systemPrompt: string;
+  tools?: string[];
 };
 
 const MANAGERS: AgentSeed[] = [
@@ -384,27 +385,47 @@ Criteria:
 You are a reviewer, not a rewriter. Do not return rewritten copy. Return the assessment.`,
   },
   {
+    slug: "web-search",
+    name: "web-search",
+    role: "Searches the web for current information",
+    description:
+      "Calls the Tavily search API and returns a ranked list of results (title, URL, excerpt, score). The resolved prompt is used as the search query. Output is a JSON array — subsequent steps can reference it via {{steps[N].output}}.",
+    agentType: AgentType.EXECUTOR,
+    model: "claude-sonnet", // unused — dispatched to tool function directly
+    systemPrompt: `Tool agent. Executes a Tavily web search with the resolved prompt as the query. Returns JSON array of { title, url, content, score }.`,
+  },
+  {
+    slug: "web-fetch",
+    name: "web-fetch",
+    role: "Fetches the full content of a web page",
+    description:
+      "Calls Jina Reader and returns the full page as clean markdown. Accepts either a plain URL or the JSON output of a web-search step (automatically picks the top-scored URL). Output is JSON with { url, markdown, truncated, fetchedAt }.",
+    agentType: AgentType.EXECUTOR,
+    model: "claude-sonnet", // unused — dispatched to tool function directly
+    systemPrompt: `Tool agent. Fetches a web page via Jina Reader. Input is a URL or a JSON array of search results. Returns JSON with { url, markdown, truncated, fetchedAt }.`,
+  },
+  {
     slug: "researcher",
     name: "researcher",
-    role: "Researches topics and synthesises findings",
+    role: "Synthesises research findings into structured summaries",
     description:
-      "Conducts structured research on any topic and produces concise, sourced summaries.",
+      "Takes web search results, fetched page content, or any other gathered data passed via prior steps, and synthesises a structured, decision-ready research summary.",
     agentType: AgentType.EXECUTOR,
     model: "claude-sonnet",
-    systemPrompt: `You are a research specialist. You produce structured, decision-ready research summaries on whatever topic you are given.
+    systemPrompt: `You are a research synthesis specialist. You receive pre-gathered information — web search results, fetched page content, Notion context, or any combination — and synthesise it into a structured, decision-ready summary.
 
 Your output must include:
 - **Question** — one sentence restating what was asked, in researchable terms.
 - **Key findings** — 3–7 bullet points. Each is a specific claim, not a generality.
-- **Evidence** — for each key finding, where the claim comes from. If a tool returned a real source, cite the URL or document path. If you are working from training data, mark the finding with "(training data, knowledge cutoff applies)".
-- **Competing perspectives** — where the field, market, or experts disagree, and the substance of the disagreement.
-- **What's uncertain** — what you could not establish, or what would change the conclusion if checked.
+- **Evidence** — for each key finding, cite the source URL or document. If a finding comes from training data rather than the provided content, mark it "(training data, knowledge cutoff applies)".
+- **Competing perspectives** — where sources disagree, and what the disagreement is about.
+- **What's uncertain** — what the provided information could not establish.
 - **Implications** — 2–4 bullets on what this means for the requester's decision.
 
 Hard rules:
-- Never fabricate a citation. A made-up URL or document title is worse than no citation.
-- If web, Notion, or document tools are available to you, use them and cite real results. If they are not available, work from training data and say so once at the top.
-- Distinguish what you know from what you are inferring. Mark inferences explicitly.`,
+- Only cite URLs and sources that appear in the content you were given. Never fabricate a citation.
+- If no web content was provided, work from training data and say so once at the top.
+- Distinguish what the sources say from what you are inferring. Mark inferences explicitly.`,
   },
   {
     slug: "writer",
@@ -591,13 +612,15 @@ const AGENTS: AgentSeed[] = [...MANAGERS, ...EXECUTORS];
 
 const DELEGATIONS: Record<string, string[]> = {
   ceo: [
+    "web-search",
+    "web-fetch",
     "researcher",
     "writer",
     "task-splitter",
     "x-trend-scout",
     "x-competitor-pulse",
   ],
-  cpo: ["cpo-reviewer", "task-splitter", "researcher"],
+  cpo: ["cpo-reviewer", "task-splitter", "researcher", "web-search", "web-fetch"],
   cmo: [
     "content-generator",
     "content-polisher",
@@ -609,10 +632,12 @@ const DELEGATIONS: Record<string, string[]> = {
     "editor",
     "x-trend-scout",
     "x-competitor-pulse",
+    "web-search",
+    "web-fetch",
   ],
-  cto: ["researcher", "writer", "editor", "task-splitter"],
-  cfo: ["researcher", "writer", "editor", "task-splitter"],
-  clo: ["researcher", "writer", "editor"],
+  cto: ["researcher", "writer", "editor", "task-splitter", "web-search", "web-fetch"],
+  cfo: ["researcher", "writer", "editor", "task-splitter", "web-search", "web-fetch"],
+  clo: ["researcher", "writer", "editor", "web-search", "web-fetch"],
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -639,11 +664,11 @@ function assertDelegationsRefValidSlugs() {
 }
 
 async function upsertAgents() {
-  for (const { slug, ...rest } of AGENTS) {
+  for (const { slug, tools = [], ...rest } of AGENTS) {
     await prisma.agent.upsert({
       where: { slug },
-      create: { slug, ...rest },
-      update: rest,
+      create: { slug, tools, ...rest },
+      update: { tools, ...rest },
     });
   }
 }
