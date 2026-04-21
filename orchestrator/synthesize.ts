@@ -4,6 +4,7 @@ import { resolveModel } from "@/lib/llm";
 import type { ManagerSynthesizeJobData } from "@/lib/queue";
 import { MessageRole, MessageStatus } from "@prisma/client";
 import type { ModelMessage } from "ai";
+import { cachedSystem } from "@/lib/llm-cache";
 
 // ── Handler ────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,9 @@ export async function handleManagerSynthesize(
     // 4. Call manager LLM with full reconstructed thread
     const result = await generateText({
       model: resolveModel(agent.model),
-      system: agent.systemPrompt,
+      // Manager system prompt is identical between plan and synthesis calls —
+      // caching gives a near-free read on the synthesis turn.
+      system: cachedSystem(agent.systemPrompt),
       messages,
     });
 

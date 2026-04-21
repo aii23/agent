@@ -6,8 +6,14 @@ import { enqueueExecutorRun } from "@/lib/queue";
 import type { ManagerPlanJobData } from "@/lib/queue";
 import { MessageRole, MessageStatus } from "@prisma/client";
 import type { ModelMessage } from "ai";
-import { getNotionIndex, formatNotionIndex } from "@/lib/notion-index";
+import {
+  getNotionIndex,
+  formatNotionIndex,
+  type NotionScope,
+} from "@/lib/notion-index";
 import { buildNotionContext } from "@/orchestrator/context";
+import { cachedSystem } from "@/lib/llm-cache";
+import { buildBoundedHistory } from "@/lib/conversation-history";
 
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -70,23 +76,24 @@ export async function handleManagerPlan(
   const userMessage = conversation.messages.find((m) => m.id === messageId);
   if (!userMessage) throw new Error(`Message not found: ${messageId}`);
 
-  // Build prior messages as context (excluding the triggering message)
-  const priorMessages: ModelMessage[] = conversation.messages
-    .filter((m) => m.id !== messageId)
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
+  // Build a bounded, cleaned prior-message slice (drops STREAMING/FAILED rows,
+  // caps to recent turns, marks last message as Anthropic cache breakpoint).
+  const priorMessages: ModelMessage[] = buildBoundedHistory(
+    conversation.messages,
+    messageId,
+  );
 
   const availableExecutors = agent.delegatesTo
     .map((e) => `- ${e.slug}: ${e.role}`)
     .join("\n");
 
   // ── Phase A: Build Notion context ─────────────────────────────────────────
-  // Step A1 — Load the full workspace catalog (lightweight: id + path + summary).
+  // Step A1 — Load the catalog scoped to THIS agent's notionScope (per design).
   //           No raw page content fetched yet, no LLM call.
-  console.log("3. Loading Notion workspace catalog");
-  const pageIndex = await getNotionIndex();
+  console.log("3. Loading Notion workspace catalog (scoped)");
+  const notionScope =
+    (agent.notionScope as NotionScope | null | undefined) ?? undefined;
+  const pageIndex = await getNotionIndex(notionScope);
   const catalogText = formatNotionIndex(pageIndex);
 
   let selectedPageIds: string[] = [];
@@ -101,10 +108,10 @@ export async function handleManagerPlan(
     try {
       const contextRequest = await generateText({
         model: resolveModel("claude-haiku"),
-        system: `You are a context selection assistant for an AI agent system.
+        system: cachedSystem(`You are a context selection assistant for an AI agent system.
 Given a user request and a catalog of Notion workspace pages (each with an ID, breadcrumb path, and one-sentence summary), select the IDs of pages that contain information genuinely useful for completing the request.
 Return an empty array if no pages are relevant.
-Do not include pages just because they sound related — only include pages whose content will meaningfully improve the agent's response.`,
+Do not include pages just because they sound related — only include pages whose content will meaningfully improve the agent's response.`),
         prompt: `User request: "${userMessage.content}"\n\nAvailable pages:\n${catalogText}`,
         output: Output.object({ schema: ContextRequestSchema }),
       });
@@ -216,7 +223,9 @@ synthesisPrompt:
     console.log("6. Calling LLM to generate execution plan");
     const result = await generateText({
       model: resolvedModel,
-      system: systemPrompt,
+      // Anthropic prompt caching: persona + executor list + Notion context +
+      // planner instructions are stable per turn, so cache the entire system block.
+      system: cachedSystem(systemPrompt),
       messages,
       output: Output.object({ schema: ExecutionPlanSchema }),
     });

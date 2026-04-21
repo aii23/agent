@@ -5,6 +5,7 @@ import { TOOL_EXECUTORS, isToolAgent } from "@/lib/tools/registry";
 import { enqueueExecutorRun, enqueueManagerSynthesize } from "@/lib/queue";
 import type { ExecutorRunJobData } from "@/lib/queue";
 import { MessageRole, MessageStatus } from "@prisma/client";
+import { cachedSystem } from "@/lib/llm-cache";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -93,7 +94,9 @@ export async function handleExecutorRun(
       // 6b. LLM agent: call the model
       const result = await generateText({
         model: resolveModel(agent.model),
-        system: agent.systemPrompt,
+        // Cache the executor's static system prompt — it's identical across every
+        // run of this executor, so we get cache hits across plans and turns.
+        system: cachedSystem(agent.systemPrompt),
         prompt: resolvedPrompt,
       });
       output = result.text;

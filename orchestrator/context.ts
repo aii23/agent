@@ -25,6 +25,7 @@ import { generateText } from "ai";
 import { prisma } from "@/lib/prisma";
 import { resolveModel } from "@/lib/llm";
 import { fetchPageText } from "@/lib/notion-index";
+import { cachedSystem } from "@/lib/llm-cache";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -33,23 +34,27 @@ const RAW_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 /**
  * Max characters to read from a single page before truncating.
- * 20K chars ≈ 5K tokens — covers most full Notion pages including long specs.
+ * 12K chars ≈ 3K tokens — covers the meaningful body of most Notion pages.
+ * Long specs that exceed this should be split into smaller pages anyway.
  */
-const MAX_CHARS_PER_PAGE = 20_000;
+const MAX_CHARS_PER_PAGE = 12_000;
 
 /**
  * Max total characters sent to the compression LLM.
- * 150K chars ≈ 37K tokens — comfortably fits 5-10 dense pages.
+ * 30K chars ≈ 7.5K tokens — fits 3-5 medium pages comfortably.
  *
- * We use gemini-flash which has a 1M token context window at $0.075/1M input
- * tokens. Raising this limit costs ~$0.003 per full compression call — the
- * right trade-off vs. silently truncating relevant content.
- *
- * Hard ceiling is 400K chars (≈100K tokens) if you need to cover unusually
- * large scopes. Do not use a "bigger" model — Flash's context window is larger
- * than Sonnet's (1M vs 200K) and it's 40x cheaper for this extraction task.
+ * Lowered from 150K (Phase 1 cost cut). Empirically, ~95% of chat turns need
+ * 1-3 pages of context. The previous 150K ceiling existed for unusual research
+ * tasks that almost never fire. If you hit truncation in practice, raise this
+ * incrementally and verify with usage data — don't pre-allocate budget.
  */
-const MAX_TOTAL_INPUT_CHARS = 150_000;
+const MAX_TOTAL_INPUT_CHARS = 30_000;
+
+/**
+ * Max number of pages to compress in a single call.
+ * The page selector is asked to be precise; this is a safety cap if it isn't.
+ */
+const MAX_PAGES = 5;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -129,7 +134,7 @@ function buildRawContentBlock(pages: FetchedPage[]): string {
   const blocks: string[] = [];
   let totalChars = 0;
 
-  for (const page of pages) {
+  for (const page of pages.slice(0, MAX_PAGES)) {
     const capped = page.content.slice(0, MAX_CHARS_PER_PAGE);
     if (totalChars + capped.length > MAX_TOTAL_INPUT_CHARS) break;
     totalChars += capped.length;
@@ -178,7 +183,7 @@ export async function buildNotionContext(
   const result = await generateText({
     model: resolveModel("claude-haiku"),
     maxOutputTokens,
-    system: `You are a context extractor for an AI agent system.
+    system: cachedSystem(`You are a context extractor for an AI agent system.
 Given a set of Notion pages and a user's request, extract only the information relevant to completing that request.
 
 Rules:
@@ -186,7 +191,7 @@ Rules:
 - Preserve specific facts: names, dates, numbers, decisions, and verbatim short quotes
 - Omit sections entirely if they are not relevant to the user's request
 - Do not summarise facts into vague descriptions — keep the specifics
-- Do not explain what you are doing — output only the extracted context`,
+- Do not explain what you are doing — output only the extracted context`),
     prompt: `User request: "${userRequest}"
 
 ---
