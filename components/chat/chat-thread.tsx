@@ -4,6 +4,8 @@ import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { Send, ChevronDown, Check, Loader2, MessageSquare, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { trpc } from '@/lib/trpc'
+import { FeedbackButton } from './feedback-button'
+import { FeedbackModal } from './feedback-modal'
 
 type AgentKey = 'Auto' | 'CEO' | 'CPO' | 'CMO' | 'CTO' | 'CFO' | 'CLO'
 
@@ -71,6 +73,10 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [activeFeedback, setActiveFeedback] = useState<{
+    feedbackId: string
+    userMessage: string
+  } | null>(null)
 
   const { data: conversation, isLoading } = trpc.conversations.byId.useQuery(
     { id: conversationId! },
@@ -203,8 +209,15 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
             }
 
             const cfg = resolveAgentConfig(conversation?.agent?.name)
+            // Find the user message that preceded this assistant message
+            // (used as the label in the feedback modal)
+            const msgIdx = messages.findIndex((m) => m.id === msg.id)
+            const precedingUserMsg = msgIdx > 0
+              ? [...messages].slice(0, msgIdx).reverse().find((m) => m.role === 'user')
+              : undefined
+
             return (
-              <div key={msg.id} className="flex items-start gap-3 max-w-[85%]">
+              <div key={msg.id} className="flex items-start gap-3 max-w-[85%] group">
                 <div
                   className={cn(
                     'w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold text-white mt-0.5',
@@ -224,6 +237,17 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
                   </div>
                   {msg.status === 'FAILED' && (
                     <p className="text-[10px] text-red-400 mt-1 px-1">Failed to generate response</p>
+                  )}
+                  {msg.status === 'DONE' && (
+                    <FeedbackButton
+                      messageId={msg.id}
+                      onFeedbackSubmitted={(feedbackId) =>
+                        setActiveFeedback({
+                          feedbackId,
+                          userMessage: precedingUserMsg?.content ?? msg.content.slice(0, 80),
+                        })
+                      }
+                    />
                   )}
                 </div>
               </div>
@@ -248,6 +272,23 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
 
           <div ref={bottomRef} />
         </div>
+      )}
+
+      {/* Feedback analysis modal */}
+      {activeFeedback && (
+        <FeedbackModal
+          feedbackId={activeFeedback.feedbackId}
+          userMessage={activeFeedback.userMessage}
+          onClose={() => setActiveFeedback(null)}
+          onRerun={() => {
+            if (!conversationId) return
+            addMessage.mutate({
+              conversationId,
+              role: 'user',
+              content: activeFeedback.userMessage,
+            })
+          }}
+        />
       )}
 
       {/* Input */}

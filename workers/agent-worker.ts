@@ -16,10 +16,12 @@ import type {
   ManagerPlanJobData,
   ExecutorRunJobData,
   ManagerSynthesizeJobData,
+  FeedbackAnalyzeJobData,
 } from "../lib/queue";
 import { handleManagerPlan } from "../orchestrator/plan";
 import { handleExecutorRun } from "../orchestrator/execute";
 import { handleManagerSynthesize } from "../orchestrator/synthesize";
+import { handleFeedbackAnalyze } from "./feedback-analyzer";
 
 // Load .env when running outside Next.js.
 // In Docker the env vars are injected by docker-compose, so these are no-ops.
@@ -46,6 +48,9 @@ async function processAgentJob(
 
     case "manager.synthesize":
       return handleManagerSynthesize(job.data as ManagerSynthesizeJobData);
+
+    case "feedback.analyze":
+      return handleFeedbackAnalyze(job.data as FeedbackAnalyzeJobData);
 
     default:
       throw new Error(`Unknown job name: ${job.name}`);

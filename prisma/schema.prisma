@@ -54,6 +54,13 @@ enum MessageStatus {
   FAILED
 }
 
+enum FeedbackStatus {
+  pending
+  analyzing
+  completed
+  failed
+}
+
 // ─────────────────────────────────────────────
 // Auth
 // ─────────────────────────────────────────────
@@ -64,9 +71,10 @@ model User {
   isAdmin       Boolean  @default(false)
   createdAt     DateTime @default(now())
 
-  sessions      Session[]
-  workflowRuns  WorkflowRun[]
-  conversations Conversation[]
+  sessions         Session[]
+  workflowRuns     WorkflowRun[]
+  conversations    Conversation[]
+  messageFeedbacks MessageFeedback[]
 }
 
 model Session {
@@ -202,7 +210,24 @@ model Message {
   status         MessageStatus @default(PENDING)
   createdAt      DateTime      @default(now())
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  feedback     MessageFeedback?
+}
+
+model MessageFeedback {
+  id              String         @id @default(cuid())
+  messageId       String         @unique
+  executionPlanId String?
+  userId          String
+  feedbackText    String?
+  status          FeedbackStatus @default(pending)
+  analysis        Json?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  message       Message        @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id], onDelete: SetNull)
+  user          User           @relation(fields: [userId], references: [id])
 }
 
 // ─────────────────────────────────────────────
@@ -224,8 +249,9 @@ model ExecutionPlan {
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
-  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  executionSteps ExecutionStep[]
+  conversation     Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  executionSteps   ExecutionStep[]
+  messageFeedbacks MessageFeedback[]
 }
 
 model ExecutionStep {

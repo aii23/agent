@@ -21,15 +21,23 @@ export interface ManagerSynthesizeJobData {
   executionPlanId: string;
 }
 
+/** Triggered by feedback.submit tRPC mutation when user thumbs-down a message. */
+export interface FeedbackAnalyzeJobData {
+  feedbackId: string;
+  analyzerInput: unknown; // AnalyzerInput — typed in the worker to avoid bundling server deps
+}
+
 export type AgentJobName =
   | "manager.plan"
   | "executor.run"
-  | "manager.synthesize";
+  | "manager.synthesize"
+  | "feedback.analyze";
 
 export type AgentJobData =
   | ManagerPlanJobData
   | ExecutorRunJobData
-  | ManagerSynthesizeJobData;
+  | ManagerSynthesizeJobData
+  | FeedbackAnalyzeJobData;
 
 // ── Queue ──────────────────────────────────────────────────────────────────
 
@@ -113,5 +121,15 @@ export async function enqueueManagerSynthesize(
     "manager.synthesize",
     data,
     `synth_${data.executionPlanId}`
+  );
+}
+
+export async function enqueueFeedbackAnalyze(
+  data: FeedbackAnalyzeJobData
+): Promise<string> {
+  return enqueueJob(
+    "feedback.analyze",
+    data,
+    `feedback_${data.feedbackId}`
   );
 }
