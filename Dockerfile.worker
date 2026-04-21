@@ -26,6 +26,7 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/workers ./workers
 COPY --from=builder /app/orchestrator ./orchestrator
+COPY --from=builder /app/agents ./agents
 COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/types ./types
 COPY --from=builder /app/prisma ./prisma
