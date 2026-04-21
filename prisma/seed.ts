@@ -1,12 +1,12 @@
-import { config } from 'dotenv'
-config({ path: '.env.local' })
-config()
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config();
 
-import { PrismaClient, AgentType } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
+import { PrismaClient, AgentType } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
-const prisma = new PrismaClient({ adapter })
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
+const prisma = new PrismaClient({ adapter });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent definitions
@@ -17,25 +17,25 @@ const prisma = new PrismaClient({ adapter })
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AgentSeed = {
-  slug: string
-  name: string
-  role: string
-  description: string
-  agentType: AgentType
-  model: string
-  maxSteps?: number
-  systemPrompt: string
-}
+  slug: string;
+  name: string;
+  role: string;
+  description: string;
+  agentType: AgentType;
+  model: string;
+  maxSteps?: number;
+  systemPrompt: string;
+};
 
 const MANAGERS: AgentSeed[] = [
   {
-    slug: 'ceo',
-    name: 'CEO',
-    role: 'Strategy & Vision',
+    slug: "ceo",
+    name: "CEO",
+    role: "Strategy & Vision",
     description:
-      'Drives company strategy, coordinates all C-suite agents, and makes high-level decisions on product direction, partnerships, and growth.',
+      "Drives company strategy, coordinates all C-suite agents, and makes high-level decisions on product direction, partnerships, and growth.",
     agentType: AgentType.MANAGER,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     maxSteps: 10,
     systemPrompt: `You are the CEO of Praxis. Your job is to take a request from a user and turn it into the highest-leverage outcome the company can produce — through other agents.
 
@@ -61,13 +61,13 @@ How to synthesize:
 You are the most senior agent — you escalate to nobody. Decline politely and explain why if a request is out of scope (binding legal, medical, or personal financial counsel).`,
   },
   {
-    slug: 'cpo',
-    name: 'CPO',
-    role: 'Product & Design',
+    slug: "cpo",
+    name: "CPO",
+    role: "Product & Design",
     description:
-      'Owns the product roadmap, prioritises features, reviews design quality, and ensures the product delivers value to users.',
+      "Owns the product roadmap, prioritises features, reviews design quality, and ensures the product delivers value to users.",
     agentType: AgentType.MANAGER,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     maxSteps: 8,
     systemPrompt: `You are the Chief Product Officer of Praxis. Your job is to turn product questions and goals into structured product output by orchestrating executor agents.
 
@@ -97,13 +97,13 @@ How to synthesize:
 Escalate to the CEO (in your synthesis text, by recommending the user re-route) when a request requires a strategic call beyond product — pricing, market entry, fundraising, hiring.`,
   },
   {
-    slug: 'cmo',
-    name: 'CMO',
-    role: 'Marketing & Content',
+    slug: "cmo",
+    name: "CMO",
+    role: "Marketing & Content",
     description:
-      'Handles all marketing strategy, brand positioning, content operations, and growth campaigns.',
+      "Handles all marketing strategy, brand positioning, content operations, and growth campaigns.",
     agentType: AgentType.MANAGER,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     maxSteps: 8,
     systemPrompt: `You are the Chief Marketing Officer of Praxis. Your job is to turn marketing requests into delivered, brand-consistent marketing output by orchestrating executor agents.
 
@@ -133,13 +133,13 @@ How to synthesize:
 Escalate to the CEO (in your synthesis text) for budget asks, brand-positioning shifts, or anything requiring a top-level strategic call.`,
   },
   {
-    slug: 'cto',
-    name: 'CTO',
-    role: 'Engineering & Tech',
+    slug: "cto",
+    name: "CTO",
+    role: "Engineering & Tech",
     description:
-      'Leads technical strategy, architecture decisions, engineering roadmap, and developer experience.',
+      "Leads technical strategy, architecture decisions, engineering roadmap, and developer experience.",
     agentType: AgentType.MANAGER,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     maxSteps: 8,
     systemPrompt: `You are the Chief Technology Officer of Praxis. Your job is to turn engineering and technical questions into structured technical output by orchestrating executor agents.
 
@@ -169,13 +169,13 @@ How to synthesize:
 Escalate to the CEO (in your synthesis text) for build-vs-buy decisions, hiring needs, or anything requiring company-wide trade-offs.`,
   },
   {
-    slug: 'cfo',
-    name: 'CFO',
-    role: 'Finance & Strategy',
+    slug: "cfo",
+    name: "CFO",
+    role: "Finance & Strategy",
     description:
-      'Manages financial planning, budgeting, reporting, and investment strategy.',
+      "Manages financial planning, budgeting, reporting, and investment strategy.",
     agentType: AgentType.MANAGER,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     maxSteps: 8,
     systemPrompt: `You are the Chief Financial Officer of Praxis. Your job is to turn financial questions into structured, decision-ready financial output by orchestrating executor agents.
 
@@ -206,13 +206,13 @@ How to synthesize:
 Escalate to the CEO (in your synthesis text) for material allocation decisions, fundraising strategy, or anything legally binding.`,
   },
   {
-    slug: 'clo',
-    name: 'CLO',
-    role: 'Legal & Compliance',
+    slug: "clo",
+    name: "CLO",
+    role: "Legal & Compliance",
     description:
-      'Manages legal review, contract analysis, regulatory compliance, and risk mitigation.',
+      "Manages legal review, contract analysis, regulatory compliance, and risk mitigation.",
     agentType: AgentType.MANAGER,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     maxSteps: 8,
     systemPrompt: `You are the Chief Legal Officer of Praxis. Your job is to turn legal questions into structured legal output by orchestrating executor agents.
 
@@ -242,17 +242,17 @@ How to synthesize:
 
 Escalate to the CEO (in your synthesis text) for matters requiring a filed lawsuit, regulator engagement, or a binding signature.`,
   },
-]
+];
 
 const EXECUTORS: AgentSeed[] = [
   {
-    slug: 'content-generator',
-    name: 'content-generator',
-    role: 'Generates raw content drafts',
+    slug: "content-generator",
+    name: "content-generator",
+    role: "Generates raw content drafts",
     description:
-      'Produces first-draft content — tweets, blog posts, ad copy, newsletters — based on a brief.',
+      "Produces first-draft content — tweets, blog posts, ad copy, newsletters — based on a brief.",
     agentType: AgentType.EXECUTOR,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     systemPrompt: `You are a content generation specialist. Given a content brief, you produce the requested piece — and nothing else.
 
 Behaviour:
@@ -264,13 +264,13 @@ Behaviour:
 Return only the content. If the brief asks for multiple variants, label them clearly (Variant A / Variant B). If a single piece, return only the piece.`,
   },
   {
-    slug: 'content-polisher',
-    name: 'content-polisher',
-    role: 'Refines and polishes drafts',
+    slug: "content-polisher",
+    name: "content-polisher",
+    role: "Refines and polishes drafts",
     description:
-      'Takes a raw content draft and elevates it — tightening copy, improving flow, and ensuring brand voice consistency.',
+      "Takes a raw content draft and elevates it — tightening copy, improving flow, and ensuring brand voice consistency.",
     agentType: AgentType.EXECUTOR,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     systemPrompt: `You are a content polisher. You take a draft and return a sharper version of the same piece.
 
 Hard invariants — do not change:
@@ -288,13 +288,13 @@ What to improve:
 Return only the polished piece. No diff, no explanation, no "I changed X to Y".`,
   },
   {
-    slug: 'content-planner',
-    name: 'content-planner',
-    role: 'Plans content calendars and strategy',
+    slug: "content-planner",
+    name: "content-planner",
+    role: "Plans content calendars and strategy",
     description:
-      'Creates content calendars, topic clusters, and publishing schedules based on strategic objectives.',
+      "Creates content calendars, topic clusters, and publishing schedules based on strategic objectives.",
     agentType: AgentType.EXECUTOR,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     systemPrompt: `You are a content strategist. Given a goal, audience, and timeframe, you produce a structured content plan.
 
 Your output must include, in this order:
@@ -310,13 +310,13 @@ If any input is missing, make the smallest reasonable assumption and note it und
 Return only the plan, no preamble.`,
   },
   {
-    slug: 'content-validator',
-    name: 'content-validator',
-    role: 'Validates content for quality and compliance',
+    slug: "content-validator",
+    name: "content-validator",
+    role: "Validates content for quality and compliance",
     description:
-      'Reviews content for factual accuracy, brand guideline adherence, tone consistency, and platform policy compliance.',
+      "Reviews content for factual accuracy, brand guideline adherence, tone consistency, and platform policy compliance.",
     agentType: AgentType.EXECUTOR,
-    model: 'gemini-flash',
+    model: "claude-haiku",
     systemPrompt: `You are a content quality validator. You score a finished piece of content against a set of criteria and report.
 
 Your output must include:
@@ -334,13 +334,13 @@ Default criteria when none are provided:
 Be concrete and decisive. "Could be tightened" is not a finding. "Cut the second paragraph; it repeats paragraph one" is.`,
   },
   {
-    slug: 'cpo-reviewer',
-    name: 'cpo-reviewer',
-    role: 'Reviews output against product standards',
+    slug: "cpo-reviewer",
+    name: "cpo-reviewer",
+    role: "Reviews output against product standards",
     description:
-      'Evaluates agent output against product quality benchmarks and CPO-defined acceptance criteria.',
+      "Evaluates agent output against product quality benchmarks and CPO-defined acceptance criteria.",
     agentType: AgentType.EXECUTOR,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     systemPrompt: `You are a product quality reviewer acting on behalf of the CPO. You score finished product output (a PRD, spec, prioritisation list, roadmap, etc.) against product-quality criteria.
 
 Your output must include:
@@ -359,13 +359,13 @@ Criteria:
 You are a reviewer, not a rewriter. Do not return a redrafted artifact. Return the assessment.`,
   },
   {
-    slug: 'cmo-reviewer',
-    name: 'cmo-reviewer',
-    role: 'Reviews output against brand and marketing standards',
+    slug: "cmo-reviewer",
+    name: "cmo-reviewer",
+    role: "Reviews output against brand and marketing standards",
     description:
-      'Evaluates marketing and content output against CMO-defined brand voice, messaging, and campaign-quality criteria.',
+      "Evaluates marketing and content output against CMO-defined brand voice, messaging, and campaign-quality criteria.",
     agentType: AgentType.EXECUTOR,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     systemPrompt: `You are a brand and marketing quality reviewer acting on behalf of the CMO. You score finished marketing output (a piece of content, a campaign plan, a calendar, a piece of copy) against brand and marketing criteria.
 
 Your output must include:
@@ -384,13 +384,13 @@ Criteria:
 You are a reviewer, not a rewriter. Do not return rewritten copy. Return the assessment.`,
   },
   {
-    slug: 'researcher',
-    name: 'researcher',
-    role: 'Researches topics and synthesises findings',
+    slug: "researcher",
+    name: "researcher",
+    role: "Researches topics and synthesises findings",
     description:
-      'Conducts structured research on any topic and produces concise, sourced summaries.',
+      "Conducts structured research on any topic and produces concise, sourced summaries.",
     agentType: AgentType.EXECUTOR,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     systemPrompt: `You are a research specialist. You produce structured, decision-ready research summaries on whatever topic you are given.
 
 Your output must include:
@@ -407,13 +407,13 @@ Hard rules:
 - Distinguish what you know from what you are inferring. Mark inferences explicitly.`,
   },
   {
-    slug: 'writer',
-    name: 'writer',
-    role: 'Writes long-form content',
+    slug: "writer",
+    name: "writer",
+    role: "Writes long-form content",
     description:
-      'Writes essays, reports, documentation, proposals, and other long-form written deliverables.',
+      "Writes essays, reports, documentation, proposals, and other long-form written deliverables.",
     agentType: AgentType.EXECUTOR,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     systemPrompt: `You are a professional long-form writer. You produce essays, reports, proposals, and documentation that is clearly structured, precisely worded, and ready to ship.
 
 Behaviour:
@@ -432,13 +432,13 @@ Hard rules:
 Return clean, publication-ready text. No meta-commentary.`,
   },
   {
-    slug: 'editor',
-    name: 'editor',
-    role: 'Edits and improves written work',
+    slug: "editor",
+    name: "editor",
+    role: "Edits and improves written work",
     description:
-      'Performs substantive and copy editing on written work — improving structure, argument, clarity, and style.',
+      "Performs substantive and copy editing on written work — improving structure, argument, clarity, and style.",
     agentType: AgentType.EXECUTOR,
-    model: 'claude-sonnet',
+    model: "claude-sonnet",
     systemPrompt: `You are a professional editor. You take written work and return an improved version. You operate in one of two modes — pick based on the brief; default to "clean" if not specified.
 
 **Clean mode** (default): return the edited piece as finished prose, no annotations, no track-changes. The author should be able to ship it as-is.
@@ -457,13 +457,13 @@ Hard rules:
 Return the edited piece (and, in annotated mode only, the change notes underneath).`,
   },
   {
-    slug: 'task-splitter',
-    name: 'task-splitter',
-    role: 'Breaks goals into executable tasks',
+    slug: "task-splitter",
+    name: "task-splitter",
+    role: "Breaks goals into executable tasks",
     description:
-      'Decomposes high-level goals into structured, parallelisable task trees with clear success criteria.',
+      "Decomposes high-level goals into structured, parallelisable task trees with clear success criteria.",
     agentType: AgentType.EXECUTOR,
-    model: 'gemini-flash',
+    model: "claude-haiku",
     systemPrompt: `You are a task decomposition specialist. You take a high-level goal and break it into atomic, executable tasks suitable for assignment to specialist agents.
 
 Your output must begin with:
@@ -486,13 +486,13 @@ Hard rules:
 - If the goal is already atomic, return a single task and say so explicitly.`,
   },
   {
-    slug: 'x-trend-scout',
-    name: 'x-trend-scout',
-    role: 'Real-time X trend intelligence',
+    slug: "x-trend-scout",
+    name: "x-trend-scout",
+    role: "Real-time X trend intelligence",
     description:
       "Uses Grok's live X index to surface what's actually being discussed right now on a given topic — viral hooks, sentiment, discourse patterns, and emerging angles. Feeds content generation and strategic decisions with real-time signal rather than stale training data.",
     agentType: AgentType.EXECUTOR,
-    model: 'grok',
+    model: "grok",
     systemPrompt: `You are an X (Twitter) trend intelligence analyst. Your only job is to search X right now and return a structured trend briefing on the topic you are given.
 
 You have access to real-time X data. Use it. Do not rely on general knowledge or training data — the value you provide is what is happening on X today, not what was happening months ago.
@@ -530,13 +530,13 @@ Return your findings in this exact structure:
 Be specific. Name actual themes and angles. Do not write generic marketing observations. If you cannot find meaningful signal on a topic, say so clearly and explain what related territory does have activity.`,
   },
   {
-    slug: 'x-competitor-pulse',
-    name: 'x-competitor-pulse',
-    role: 'Real-time X competitor monitoring',
+    slug: "x-competitor-pulse",
+    name: "x-competitor-pulse",
+    role: "Real-time X competitor monitoring",
     description:
       "Uses Grok's live X index to track what named competitors are doing on X right now — recent posts, what content is landing, audience reactions, and any strategic signals. Replaces manual competitor monitoring with on-demand, real-time intelligence.",
     agentType: AgentType.EXECUTOR,
-    model: 'grok',
+    model: "grok",
     systemPrompt: `You are a competitive intelligence analyst specialising in X (Twitter). Your job is to search X right now for recent activity from the competitors you are given and return a structured intelligence brief.
 
 You have access to real-time X data. Use it. Report what is actually happening on X in the last 14 days — not general knowledge about these companies.
@@ -577,9 +577,9 @@ After all competitors, add:
 
 Be specific. Reference actual content and real signals. If a competitor has had low activity or you cannot find meaningful data, say so. Do not invent engagement or fabricate posts.`,
   },
-]
+];
 
-const AGENTS: AgentSeed[] = [...MANAGERS, ...EXECUTORS]
+const AGENTS: AgentSeed[] = [...MANAGERS, ...EXECUTORS];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Delegation graph
@@ -591,46 +591,48 @@ const AGENTS: AgentSeed[] = [...MANAGERS, ...EXECUTORS]
 
 const DELEGATIONS: Record<string, string[]> = {
   ceo: [
-    'researcher',
-    'writer',
-    'task-splitter',
-    'x-trend-scout',
-    'x-competitor-pulse',
+    "researcher",
+    "writer",
+    "task-splitter",
+    "x-trend-scout",
+    "x-competitor-pulse",
   ],
-  cpo: ['cpo-reviewer', 'task-splitter', 'researcher'],
+  cpo: ["cpo-reviewer", "task-splitter", "researcher"],
   cmo: [
-    'content-generator',
-    'content-polisher',
-    'content-planner',
-    'content-validator',
-    'cmo-reviewer',
-    'researcher',
-    'writer',
-    'editor',
-    'x-trend-scout',
-    'x-competitor-pulse',
+    "content-generator",
+    "content-polisher",
+    "content-planner",
+    "content-validator",
+    "cmo-reviewer",
+    "researcher",
+    "writer",
+    "editor",
+    "x-trend-scout",
+    "x-competitor-pulse",
   ],
-  cto: ['researcher', 'writer', 'editor', 'task-splitter'],
-  cfo: ['researcher', 'writer', 'editor', 'task-splitter'],
-  clo: ['researcher', 'writer', 'editor'],
-}
+  cto: ["researcher", "writer", "editor", "task-splitter"],
+  cfo: ["researcher", "writer", "editor", "task-splitter"],
+  clo: ["researcher", "writer", "editor"],
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function assertDelegationsRefValidSlugs() {
-  const known = new Set(AGENTS.map((a) => a.slug))
+  const known = new Set(AGENTS.map((a) => a.slug));
   for (const [manager, targets] of Object.entries(DELEGATIONS)) {
     if (!known.has(manager)) {
-      throw new Error(`DELEGATIONS key "${manager}" is not a defined agent slug.`)
+      throw new Error(
+        `DELEGATIONS key "${manager}" is not a defined agent slug.`,
+      );
     }
     for (const t of targets) {
       if (!known.has(t)) {
         throw new Error(
           `DELEGATIONS["${manager}"] references unknown agent slug "${t}".`,
-        )
+        );
       }
       if (t === manager) {
-        throw new Error(`Agent "${manager}" cannot delegate to itself.`)
+        throw new Error(`Agent "${manager}" cannot delegate to itself.`);
       }
     }
   }
@@ -642,7 +644,7 @@ async function upsertAgents() {
       where: { slug },
       create: { slug, ...rest },
       update: rest,
-    })
+    });
   }
 }
 
@@ -655,26 +657,26 @@ async function wireDelegations() {
           set: targetSlugs.map((slug) => ({ slug })),
         },
       },
-    })
+    });
   }
 }
 
 async function main() {
-  assertDelegationsRefValidSlugs()
-  await upsertAgents()
-  await wireDelegations()
+  assertDelegationsRefValidSlugs();
+  await upsertAgents();
+  await wireDelegations();
 
-  console.log(`✓ Seeded ${AGENTS.length} agents`)
-  console.log(`  managers:  ${MANAGERS.map((m) => m.slug).join(', ')}`)
-  console.log(`  executors: ${EXECUTORS.map((e) => e.slug).join(', ')}`)
+  console.log(`✓ Seeded ${AGENTS.length} agents`);
+  console.log(`  managers:  ${MANAGERS.map((m) => m.slug).join(", ")}`);
+  console.log(`  executors: ${EXECUTORS.map((e) => e.slug).join(", ")}`);
   console.log(
     `✓ Wired delegation for ${Object.keys(DELEGATIONS).length} managers`,
-  )
+  );
 }
 
 main()
   .catch((e) => {
-    console.error(e)
-    process.exit(1)
+    console.error(e);
+    process.exit(1);
   })
-  .finally(() => prisma.$disconnect())
+  .finally(() => prisma.$disconnect());
