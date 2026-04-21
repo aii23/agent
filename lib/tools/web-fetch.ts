@@ -13,40 +13,52 @@ export interface FetchResult {
   fetchedAt: string;
 }
 
+// Matches the first http(s) URL in a string, stopping at whitespace or common
+// trailing punctuation that is unlikely to be part of the URL itself.
+const URL_REGEX = /https?:\/\/[^\s"'<>)\]]+/;
+
 /**
  * Resolves the input string to a concrete URL.
  *
- * Accepts two input shapes from the plan template:
- *   1. A plain URL string: "https://example.com/page"
- *   2. A JSON array of SearchResult (output of a prior web-search step) —
- *      the top-scored result's URL is used automatically.
+ * Tries four strategies in order:
+ *   1. Bare URL  — input is already "https://example.com"
+ *   2. JSON SearchResult array — output of a prior web-search step;
+ *      picks the highest-scored result automatically.
+ *   3. URL embedded in natural language — manager wrote something like
+ *      "Fetch https://example.com and extract X"; regex extracts the URL.
+ *   4. Throws with a clear message if none of the above matched.
  *
- * This lets the manager write a plan step like:
- *   { agent: "web-fetch", promptTemplate: "{{steps[0].output}}" }
- * without needing to know the URL in advance.
+ * Strategies 1–3 mean the manager can write natural-language instructions
+ * for web-fetch steps without breaking execution.
  */
 function resolveUrl(input: string): string {
   const trimmed = input.trim();
 
+  // 1. Bare URL
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     return trimmed;
   }
 
+  // 2. JSON SearchResult array from a prior web-search step
   try {
     const parsed = JSON.parse(trimmed);
     if (Array.isArray(parsed) && parsed.length > 0) {
       const results = parsed as SearchResult[];
-      // Sort by score desc, take the highest-ranked URL
       const top = [...results].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
       if (top?.url) {
-        console.log(
-          `[web-fetch] resolved top URL from search results: ${top.url}`,
-        );
+        console.log(`[web-fetch] resolved top URL from search results: ${top.url}`);
         return top.url;
       }
     }
   } catch {
-    // not JSON — fall through to error
+    // not JSON — continue
+  }
+
+  // 3. URL embedded in natural-language instruction
+  const match = trimmed.match(URL_REGEX);
+  if (match) {
+    console.log(`[web-fetch] extracted URL from natural-language prompt: ${match[0]}`);
+    return match[0];
   }
 
   throw new Error(

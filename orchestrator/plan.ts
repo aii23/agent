@@ -163,6 +163,16 @@ Steps:
 - Use {{steps[N].output}} to reference the output of a previous step (0-indexed).
 - Maximum 8 steps.
 
+Tool agent rules (web-search, web-fetch):
+- web-search promptTemplate must be only the search query string — no extra text.
+  ✓ "Maven 11 Capital VC fund investment focus contacts"
+  ✗ "Search the web for Maven 11 Capital and return their contact details"
+- web-fetch promptTemplate must be only the URL — no instructions, no surrounding text.
+  ✓ "https://www.maven11.com"
+  ✗ "Fetch https://www.maven11.com and extract investment focus and contact details"
+  The extraction instructions belong in the downstream researcher or writer step, not here.
+- To chain web-search into web-fetch, use {{steps[N].output}} as the entire web-fetch promptTemplate — the engine will pick the top-scored URL automatically.
+
 synthesisPrompt:
 - Write a specific instruction that tells the manager how to synthesize the executor results into a final response.
 - Include the placeholder {{executorResults}} exactly once — it will be replaced with the concatenated outputs of all executor steps.
