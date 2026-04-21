@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { ListTree, MessageSquare, ChevronDown, ChevronRight, Clock, Bot, Copy, Check } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import { PlanStatusBadge, StepStatusIndicator } from './status-badge'
 import { trpc } from '@/lib/trpc'
@@ -230,9 +232,47 @@ function StepCard({ step }: { step: ExecutionStep }) {
                 </p>
                 <CopyButton text={step.output} />
               </div>
-              <pre className="text-[11px] text-zinc-300 whitespace-pre-wrap bg-zinc-800/60 rounded-lg p-3 leading-relaxed max-h-80 overflow-y-auto font-mono">
-                {step.output}
-              </pre>
+              <div className="text-[11px] text-zinc-300 bg-zinc-800/60 rounded-lg p-3 leading-relaxed max-h-80 overflow-y-auto">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                    h1: ({ children }) => <h1 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-xs font-bold mb-2 mt-3 first:mt-0 text-zinc-200">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-xs font-semibold mb-1.5 mt-2 first:mt-0">{children}</h3>,
+                    ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+                    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                    strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+                    em: ({ children }) => <em className="italic text-zinc-300">{children}</em>,
+                    blockquote: ({ children }) => (
+                      <blockquote className="border-l-2 border-indigo-500 pl-3 my-2 text-zinc-300 italic">
+                        {children}
+                      </blockquote>
+                    ),
+                    hr: () => <hr className="border-zinc-700 my-3" />,
+                    code: ({ children, className }) => {
+                      const isBlock = className?.includes('language-')
+                      return isBlock ? (
+                        <code className="block bg-zinc-900 rounded-lg p-3 my-2 text-[10px] font-mono text-zinc-200 overflow-x-auto whitespace-pre">
+                          {children}
+                        </code>
+                      ) : (
+                        <code className="bg-zinc-900 rounded px-1 py-0.5 text-[10px] font-mono text-indigo-300">
+                          {children}
+                        </code>
+                      )
+                    },
+                    a: ({ children, href }) => (
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2">
+                        {children}
+                      </a>
+                    ),
+                  }}
+                >
+                  {step.output}
+                </ReactMarkdown>
+              </div>
             </div>
           )}
 
