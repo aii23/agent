@@ -5,6 +5,47 @@ import type { ManagerSynthesizeJobData } from "@/lib/queue";
 import { MessageRole, MessageStatus } from "@prisma/client";
 import type { ModelMessage } from "ai";
 
+// ── Synthesis system prompt (shared across all managers) ──────────────────
+//
+// Why a shared prompt and not the manager's persona?
+//
+// Manager system prompts (CEO/CPO/CMO/...) are written for the *planning*
+// job: they list executors, give few-shot plan examples, describe how to
+// route work, etc. When the same prompt is used unmodified at synthesis
+// time, those planning-oriented sections leak into the output — the model
+// roleplays simulated downstream agents ("Now sending to cpo-reviewer..."),
+// includes "Step N of M" headers, narrates the pipeline, and so on.
+//
+// Splitting the two jobs:
+//   - Planner-side: keeps the rich persona prompt (read by plan.ts to write
+//     a good plan and a tailored synthesisPrompt for the turn).
+//   - Synthesizer-side: this single prompt. Treats the planner-authored
+//     synthesisPrompt as a contract and produces the user-facing message.
+//
+// The planner-authored synthesisPrompt carries everything turn-specific
+// (tone, format, length, what to lead with, what to weigh). This prompt
+// is purely the discipline + framing the model needs to honour it cleanly.
+const SYNTHESIS_SYSTEM_PROMPT = `You are the final delivery stage of a multi-agent system. You will receive:
+1. The original user request (in the conversation history).
+2. A specific instruction (the synthesisPrompt) authored by the manager that planned this turn — this is your brief.
+3. The concatenated outputs of the executor agents that ran for this turn, embedded inside that brief.
+
+Your job is to produce the message the user sees. Treat the synthesisPrompt as a contract: follow its format, tone, length, and structural requirements exactly.
+
+Output discipline:
+- Return ONLY the user-facing message. The user reads your output verbatim.
+- No execution metadata: no "Plan:", no "Step N of M", no agent slug headers, no "Now sending to ...", no "Routing to ...".
+- Do not roleplay or simulate any other agent's response. The pipeline is OVER. There are no follow-up steps after this one.
+- Do not narrate what you are about to do or just did. Just deliver the result.
+- If the synthesisPrompt instructs you to "route", "send", "have X review", or "then do Y" — ignore it. Produce the final artifact now.
+- If a reviewer/researcher informed your answer, fold it in silently. Do not quote a reviewer dialog.
+
+Quality calibration (apply unless the synthesisPrompt overrides):
+- Lead with the answer, recommendation, or artifact. Reasoning and supporting findings come after.
+- Surface trade-offs honestly. Do not hide alternatives the user should weigh.
+- State assumptions explicitly when relevant.
+- Be specific. Avoid generic framing like "Here is a comprehensive overview of...".`;
+
 // ── Handler ────────────────────────────────────────────────────────────────
 
 export async function handleManagerSynthesize(
@@ -136,6 +177,14 @@ function hasExecutorArtifacts(text: string): boolean {
 /**
  * Full Sonnet synthesis path. Used when the planner needs the manager to
  * combine multiple executor outputs, add judgement, or frame a recommendation.
+ *
+ * Uses the shared SYNTHESIS_SYSTEM_PROMPT — NOT the manager's persona — so
+ * planner-side template language ("→ cpo-reviewer only if it'll ship", etc.)
+ * doesn't leak into the synthesis output as simulated agent transcripts.
+ *
+ * `agent.model` is still used to pick the model (Sonnet for managers).
+ * Per-manager voice / tone / structure for this specific turn comes through
+ * the planner-authored synthesisPrompt, which already encodes it.
  */
 async function runFullSynthesis(
   plan: {
@@ -143,7 +192,7 @@ async function runFullSynthesis(
     synthesisPrompt: string | null;
     executionSteps: CompletedStep[];
   },
-  agent: { model: string; systemPrompt: string },
+  agent: { model: string },
 ): Promise<string> {
   const managerThread = (plan.managerThread as ModelMessage[]) ?? [];
 
@@ -162,7 +211,7 @@ async function runFullSynthesis(
 
   const result = await generateText({
     model: resolveModel(agent.model),
-    system: agent.systemPrompt,
+    system: SYNTHESIS_SYSTEM_PROMPT,
     messages,
   });
 

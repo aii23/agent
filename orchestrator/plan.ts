@@ -37,7 +37,10 @@ const ExecutionPlanSchema = z.object({
   synthesisPrompt: z
     .string()
     .describe(
-      "A specific instruction for the synthesis step. Must include the literal placeholder {{executorResults}} exactly once — that token will be replaced with the concatenated executor outputs at synthesis time. The prompt should reference the user's goal, describe the desired output format, and explain how to weigh or combine the results. Do not be generic. Required even when synthesisRequired is false (used as a fallback formatter hint).",
+      "A specific instruction for the synthesis step. Must include the literal placeholder {{executorResults}} exactly once — that token will be replaced with the concatenated executor outputs at synthesis time. The prompt should reference the user's goal, describe the desired output format (length, tone, structure, what to lead with), and explain how to weigh or combine the results. Do not be generic. " +
+        "IMPORTANT: the synthesizer does NOT see your persona prompt or this planner block. This synthesisPrompt is the entire brief it gets, alongside the conversation history and the executor outputs. Bake all the manager-specific guidance you want it to follow into THIS string. " +
+        "Do NOT instruct the synthesizer to 'route to', 'send to', or 'have X review' — there are no follow-up steps after synthesis. " +
+        "Required even when synthesisRequired is false (used as a fallback formatter hint).",
     ),
 });
 
@@ -192,9 +195,12 @@ synthesisRequired:
 - true when multiple executor outputs must be merged, judgement added, or a recommendation framed.
 
 synthesisPrompt:
+- This is the ONLY brief the synthesizer agent receives, alongside conversation history and executor outputs. The synthesizer does NOT see your persona prompt or these planner instructions.
+- Bake everything turn-specific into this string: format, length, tone, structure, what to lead with, what to weigh, what to omit. Pull guidance from your "How to synthesize" section into the synthesisPrompt itself when relevant.
 - Always provide one (used as the formatter hint even when synthesisRequired is false).
 - Include the placeholder {{executorResults}} exactly once — it will be replaced with the concatenated outputs of all executor steps.
-- Reference the user's original goal and the expected shape of the final response (format, length, tone, which executor output to prioritise).
+- Reference the user's original goal and the expected shape of the final response.
+- Do NOT instruct the synthesizer to "route to", "send to", or "have X review" — there are no follow-up steps after synthesis. Any reviewer/editor work must be a real plan step, not a synthesis instruction.
 - Do not write a generic "please summarise" instruction — make it specific to this request.`;
 
   // Multi-block system: Notion context FIRST (its own cache breakpoint),
