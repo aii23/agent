@@ -12,7 +12,7 @@ import {
   type NotionScope,
 } from "@/lib/notion-index";
 import { buildNotionContext } from "@/orchestrator/context";
-import { cachedSystem } from "@/lib/llm-cache";
+import { CACHE_BREAKPOINT } from "@/lib/llm-cache";
 import { buildBoundedHistory } from "@/lib/conversation-history";
 
 import { config } from "dotenv";
@@ -29,10 +29,15 @@ const PlanStepSchema = z.object({
 // Anthropic's structured output rejects. Enforce limits in code after parsing.
 const ExecutionPlanSchema = z.object({
   steps: z.array(PlanStepSchema),
+  synthesisRequired: z
+    .boolean()
+    .describe(
+      "Set false when the FINAL executor's output is itself the deliverable the user asked for (a polished tweet, a written email, a finished spec) and synthesis would only reformat it. Set true when multiple executor outputs need merging, when judgement / trade-offs must be added, or when the user asked for a recommendation rather than an artifact. Default to false for single-step plans whose last step already produces the requested artifact.",
+    ),
   synthesisPrompt: z
     .string()
     .describe(
-      "A specific instruction for the synthesis step. Must include the literal placeholder {{executorResults}} exactly once — that token will be replaced with the concatenated executor outputs at synthesis time. The prompt should reference the user's goal, describe the desired output format, and explain how to weigh or combine the results. Do not be generic.",
+      "A specific instruction for the synthesis step. Must include the literal placeholder {{executorResults}} exactly once — that token will be replaced with the concatenated executor outputs at synthesis time. The prompt should reference the user's goal, describe the desired output format, and explain how to weigh or combine the results. Do not be generic. Required even when synthesisRequired is false (used as a fallback formatter hint).",
     ),
 });
 
@@ -106,12 +111,15 @@ export async function handleManagerPlan(
       `4. Selecting relevant Notion pages from catalog (${pageIndex.length} pages)`,
     );
     try {
+      // No cachedSystem here — the system prompt is ~150 tokens, well below
+      // Anthropic's 2048-token Haiku cache minimum, so the breakpoint would
+      // be ignored. Keeping the call simple.
       const contextRequest = await generateText({
         model: resolveModel("claude-haiku"),
-        system: cachedSystem(`You are a context selection assistant for an AI agent system.
+        system: `You are a context selection assistant for an AI agent system.
 Given a user request and a catalog of Notion workspace pages (each with an ID, breadcrumb path, and one-sentence summary), select the IDs of pages that contain information genuinely useful for completing the request.
 Return an empty array if no pages are relevant.
-Do not include pages just because they sound related — only include pages whose content will meaningfully improve the agent's response.`),
+Do not include pages just because they sound related — only include pages whose content will meaningfully improve the agent's response.`,
         prompt: `User request: "${userMessage.content}"\n\nAvailable pages:\n${catalogText}`,
         output: Output.object({ schema: ContextRequestSchema }),
       });
@@ -152,16 +160,15 @@ Do not include pages just because they sound related — only include pages whos
 
   // ── Phase B: Generate execution plan ──────────────────────────────────────
 
-  const contextSection = notionContext
-    ? `\n\nRelevant context from the Notion workspace:\n${notionContext}\n`
-    : "";
-
-  const systemPrompt = `${agent.systemPrompt}
+  // Stable, cacheable system block: persona + executor list + planner rules.
+  // Crucially, Notion context is NOT here — it changes per turn and would
+  // invalidate the cache on every request.
+  const stableSystemPrompt = `${agent.systemPrompt}
 
 You have access to the following executor agents:
 ${availableExecutors}
-${contextSection}
-When responding, produce an execution plan as a structured list of steps, plus a synthesisPrompt.
+
+When responding, produce an execution plan as a structured list of steps, plus synthesisRequired and synthesisPrompt.
 
 Steps:
 - Each step must reference one of the executor agents listed above.
@@ -180,21 +187,66 @@ Tool agent rules (web-search, web-fetch):
   The extraction instructions belong in the downstream researcher or writer step, not here.
 - To chain web-search into web-fetch, use {{steps[N].output}} as the entire web-fetch promptTemplate — the engine will pick the top-scored URL automatically.
 
+synthesisRequired:
+- false when the final executor's output IS the deliverable (polished tweet, written email, finished spec) — the orchestrator will publish it directly with light formatting.
+- true when multiple executor outputs must be merged, judgement added, or a recommendation framed.
+
 synthesisPrompt:
-- Write a specific instruction that tells the manager how to synthesize the executor results into a final response.
+- Always provide one (used as the formatter hint even when synthesisRequired is false).
 - Include the placeholder {{executorResults}} exactly once — it will be replaced with the concatenated outputs of all executor steps.
-- Reference the user's original goal and the expected shape of the final response (e.g. format, length, tone, which executor output to prioritise).
+- Reference the user's original goal and the expected shape of the final response (format, length, tone, which executor output to prioritise).
 - Do not write a generic "please summarise" instruction — make it specific to this request.`;
 
-  const messages: ModelMessage[] = [
+  // Multi-block system: Notion context FIRST (its own cache breakpoint),
+  // then the stable persona+instructions block. Putting the largest shared
+  // blob first means:
+  //   - Within a plan: every executor call (separate file) shares the same
+  //     notion_context prefix → cross-executor cache hits.
+  //   - Across turns to this manager: when the planner picks the same pages
+  //     and the compressor produces similar output, BP1 still hits even if
+  //     the persona/instructions block ever changes.
+  // BP2 (after the persona block) covers the always-stable suffix.
+  const messages: ModelMessage[] = [];
+
+  if (notionContext) {
+    messages.push({
+      role: "system",
+      content: `<workspace_context>\n${notionContext}\n</workspace_context>`,
+      providerOptions: CACHE_BREAKPOINT,
+    });
+  }
+
+  messages.push({
+    role: "system",
+    content: stableSystemPrompt,
+    providerOptions: CACHE_BREAKPOINT,
+  });
+
+  messages.push(
     ...priorMessages,
     { role: "user", content: userMessage.content },
-  ];
+  );
 
-  let plan: { steps: PlanStep[]; synthesisPrompt: string };
+  let plan: {
+    steps: PlanStep[];
+    synthesisPrompt: string;
+    synthesisRequired: boolean;
+  };
 
   try {
     // 6. Call LLM to generate execution plan
+    //
+    // Planning runs on agent.model (Sonnet for managers). Tempting to flip
+    // this to Haiku — plan output is JSON-shaped and feels like simple
+    // structured output — but the actual task is harder than it looks:
+    //   - pick the right executor from ~20 candidates with subtle differences
+    //   - write promptTemplates that pass the right constraints downstream
+    //   - hold the "shortest plan that does the job" line (a soft rule
+    //     Sonnet weighs noticeably better than Haiku)
+    //   - decide synthesisRequired correctly
+    // The downstream cost of a bad plan (one extra executor step ≈ +$0.02)
+    // wipes out the planner savings. Revisit this only with measurement
+    // (per-call token logs + plan-quality eval), not on intuition.
     const resolvedModel = resolveModel(agent.model);
 
     // ── DEBUG: env & model resolution ─────────────────────────────────────
@@ -216,16 +268,19 @@ synthesisPrompt:
         : "not set",
     );
     console.log("[plan:debug] messages count     :", messages.length);
-    console.log("[plan:debug] systemPrompt len   :", systemPrompt.length);
+    console.log(
+      "[plan:debug] stableSystem len   :",
+      stableSystemPrompt.length,
+    );
     console.log("[plan:debug] notionContext len  :", notionContext.length);
     // ──────────────────────────────────────────────────────────────────────
 
     console.log("6. Calling LLM to generate execution plan");
     const result = await generateText({
       model: resolvedModel,
-      // Anthropic prompt caching: persona + executor list + Notion context +
-      // planner instructions are stable per turn, so cache the entire system block.
-      system: cachedSystem(systemPrompt),
+      // System blocks live in the messages array (see above) so we can put
+      // notion context FIRST with its own cache breakpoint. Don't also pass
+      // `system:` — it'd insert a third system block and confuse the cache.
       messages,
       output: Output.object({ schema: ExecutionPlanSchema }),
     });
@@ -310,6 +365,7 @@ synthesisPrompt:
       notionPageIds: selectedPageIds,
       notionContext: notionContext || null,
       synthesisPrompt: plan.synthesisPrompt,
+      synthesisRequired: plan.synthesisRequired,
     },
   });
 

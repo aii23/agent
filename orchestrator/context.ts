@@ -25,7 +25,6 @@ import { generateText } from "ai";
 import { prisma } from "@/lib/prisma";
 import { resolveModel } from "@/lib/llm";
 import { fetchPageText } from "@/lib/notion-index";
-import { cachedSystem } from "@/lib/llm-cache";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -180,10 +179,13 @@ export async function buildNotionContext(
 
   const rawContentBlock = buildRawContentBlock(pages);
 
+  // No cachedSystem here — the system prompt is ~300 tokens, well below
+  // Anthropic's 2048-token Haiku cache minimum, so the breakpoint would be
+  // ignored. The volatile per-turn prompt would invalidate it anyway.
   const result = await generateText({
     model: resolveModel("claude-haiku"),
     maxOutputTokens,
-    system: cachedSystem(`You are a context extractor for an AI agent system.
+    system: `You are a context extractor for an AI agent system.
 Given a set of Notion pages and a user's request, extract only the information relevant to completing that request.
 
 Rules:
@@ -191,7 +193,7 @@ Rules:
 - Preserve specific facts: names, dates, numbers, decisions, and verbatim short quotes
 - Omit sections entirely if they are not relevant to the user's request
 - Do not summarise facts into vague descriptions — keep the specifics
-- Do not explain what you are doing — output only the extracted context`),
+- Do not explain what you are doing — output only the extracted context`,
     prompt: `User request: "${userRequest}"
 
 ---

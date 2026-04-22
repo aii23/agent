@@ -4,7 +4,6 @@ import { resolveModel } from "@/lib/llm";
 import type { ManagerSynthesizeJobData } from "@/lib/queue";
 import { MessageRole, MessageStatus } from "@prisma/client";
 import type { ModelMessage } from "ai";
-import { cachedSystem } from "@/lib/llm-cache";
 
 // ── Handler ────────────────────────────────────────────────────────────────
 
@@ -33,40 +32,21 @@ export async function handleManagerSynthesize(
 
   if (!agent) throw new Error(`Manager agent not found: ${plan.managerSlug}`);
 
-  // 2. Load the saved manager thread from the planning phase
-  const managerThread = (plan.managerThread as ModelMessage[]) ?? [];
-
-  // 3. Build synthesis message: append executor results to the thread
-  const executorResultsText = plan.executionSteps
-    .map((step, i) => `## Step ${i + 1} — ${step.agentSlug}\n\n${step.output}`)
-    .join("\n\n---\n\n");
-
-  // Use the planner-authored prompt when available; fall back to a generic
-  // instruction only for plans created before this field existed.
-  const synthesisContent = plan.synthesisPrompt
-    ? plan.synthesisPrompt.replace("{{executorResults}}", executorResultsText)
-    : `Here are the results from the executor agents:\n\n${executorResultsText}\n\nPlease synthesize these results into a final response for the user.`;
-
-  const synthesisUserMessage: ModelMessage = {
-    role: "user",
-    content: synthesisContent,
-  };
-
-  const messages: ModelMessage[] = [...managerThread, synthesisUserMessage];
-
   let finalResponse: string;
 
   try {
-    // 4. Call manager LLM with full reconstructed thread
-    const result = await generateText({
-      model: resolveModel(agent.model),
-      // Manager system prompt is identical between plan and synthesis calls —
-      // caching gives a near-free read on the synthesis turn.
-      system: cachedSystem(agent.systemPrompt),
-      messages,
-    });
-
-    finalResponse = result.text;
+    if (plan.synthesisRequired === false && plan.executionSteps.length > 0) {
+      // ── Short-circuit path ──────────────────────────────────────────────
+      // The planner declared the last executor's output to be the deliverable.
+      // Run a tiny Haiku formatter pass to strip artifacts (executor headers,
+      // assumption blocks, redundant preamble) instead of paying for a full
+      // Sonnet synthesis. ~10× cheaper, ~5× faster, identical user-visible
+      // result for "polish this" / "draft that" style requests.
+      finalResponse = await runFormatterPass(plan.executionSteps);
+    } else {
+      // ── Full synthesis path ─────────────────────────────────────────────
+      finalResponse = await runFullSynthesis(plan, agent);
+    }
   } catch (err) {
     await prisma.executionPlan.update({
       where: { id: executionPlanId },
@@ -98,4 +78,93 @@ export async function handleManagerSynthesize(
     where: { id: executionPlanId },
     data: { status: "DONE" },
   });
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+type CompletedStep = { agentSlug: string; output: string | null };
+
+/**
+ * Cheap final-formatter pass.
+ *
+ * Used when the planner sets synthesisRequired=false — i.e. the last executor
+ * already produced the deliverable. We run a small Haiku call (not Sonnet) that
+ * strips executor artifacts (`Assumptions:` blocks, "Here is your tweet:"
+ * preambles, leftover step headers) without re-writing the content.
+ *
+ * Cost: ~$0.003 vs ~$0.04 for full Sonnet synthesis.
+ */
+async function runFormatterPass(steps: CompletedStep[]): Promise<string> {
+  const lastStep = steps[steps.length - 1];
+  const lastOutput = (lastStep.output ?? "").trim();
+
+  if (!lastOutput) {
+    throw new Error("Last executor produced empty output");
+  }
+
+  // Cheap heuristic: if the output is already clean (no obvious executor
+  // artifacts), return it verbatim and skip the formatter call entirely.
+  if (!hasExecutorArtifacts(lastOutput)) {
+    return lastOutput;
+  }
+
+  const result = await generateText({
+    model: resolveModel("claude-haiku"),
+    system:
+      "You are a final-pass formatter. You receive an executor agent's output and return it ready to ship to the end user. Strip leftover preambles ('Here is...', 'I've drafted...'), executor self-commentary, 'Assumptions:' blocks at the end, and step headers. Keep the substance verbatim — do not rewrite, shorten, or reinterpret. Return only the cleaned content.",
+    prompt: lastOutput,
+    maxOutputTokens: 1500,
+  });
+
+  return result.text.trim();
+}
+
+/**
+ * Detects whether an executor output contains formatting artifacts that the
+ * formatter pass should clean up. Conservative — only flags clear signals.
+ */
+function hasExecutorArtifacts(text: string): boolean {
+  const head = text.slice(0, 200);
+  const tail = text.slice(-400);
+  return (
+    /^(here['']s|here is|i['']ve|i have|sure[,.]|certainly[,.])/i.test(head) ||
+    /\n\s*Assumptions?:\s*\n/i.test(tail) ||
+    /^##?\s*(variant|step)\s*[a-z0-9]/im.test(head)
+  );
+}
+
+/**
+ * Full Sonnet synthesis path. Used when the planner needs the manager to
+ * combine multiple executor outputs, add judgement, or frame a recommendation.
+ */
+async function runFullSynthesis(
+  plan: {
+    managerThread: unknown;
+    synthesisPrompt: string | null;
+    executionSteps: CompletedStep[];
+  },
+  agent: { model: string; systemPrompt: string },
+): Promise<string> {
+  const managerThread = (plan.managerThread as ModelMessage[]) ?? [];
+
+  const executorResultsText = plan.executionSteps
+    .map((step, i) => `## Step ${i + 1} — ${step.agentSlug}\n\n${step.output}`)
+    .join("\n\n---\n\n");
+
+  const synthesisContent = plan.synthesisPrompt
+    ? plan.synthesisPrompt.replace("{{executorResults}}", executorResultsText)
+    : `Here are the results from the executor agents:\n\n${executorResultsText}\n\nPlease synthesize these results into a final response for the user.`;
+
+  const messages: ModelMessage[] = [
+    ...managerThread,
+    { role: "user", content: synthesisContent },
+  ];
+
+  const result = await generateText({
+    model: resolveModel(agent.model),
+    system: agent.systemPrompt,
+    messages,
+  });
+
+  return result.text;
 }

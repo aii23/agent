@@ -246,6 +246,7 @@ model ExecutionPlan {
   notionPageIds    String[]            @default([]) // page IDs selected by manager during planning
   notionContext    String?             // compressed Notion context injected into executor prompts
   synthesisPrompt String?             // LLM-authored synthesis instruction; use {{executorResults}} as the injection point
+  synthesisRequired Boolean            @default(true) // when false, the orchestrator publishes the last executor output (lightly formatted) instead of running the full Sonnet synthesis call
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 

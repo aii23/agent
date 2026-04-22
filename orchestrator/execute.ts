@@ -1,11 +1,12 @@
 import { generateText } from "ai";
+import type { ModelMessage } from "ai";
 import { prisma } from "@/lib/prisma";
 import { resolveModel } from "@/lib/llm";
 import { TOOL_EXECUTORS, isToolAgent } from "@/lib/tools/registry";
 import { enqueueExecutorRun, enqueueManagerSynthesize } from "@/lib/queue";
 import type { ExecutorRunJobData } from "@/lib/queue";
 import { MessageRole, MessageStatus } from "@prisma/client";
-import { cachedSystem } from "@/lib/llm-cache";
+import { CACHE_BREAKPOINT } from "@/lib/llm-cache";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -55,12 +56,22 @@ export async function handleExecutorRun(
   if (!triggerMessage)
     throw new Error(`Trigger message not found: ${plan.messageId}`);
 
-  // 4. Resolve template variables
+  // Detect whether this step opts into the workspace context BEFORE
+  // substitution. If yes, we put the context in a cached system block and
+  // strip it from the prompt body — same content, paid once, cacheable
+  // across every executor in the plan that references {{notionContext}}.
+  const usesNotionContext =
+    currentStep.promptTemplate.includes("{{notionContext}}") &&
+    !!plan.notionContext;
+
+  // 4. Resolve template variables. When usesNotionContext is true we pass
+  // an empty string for notion so the template marker is removed; the actual
+  // context rides in via a cached system message instead.
   const resolvedPrompt = resolveTemplate(
     currentStep.promptTemplate,
     triggerMessage.content,
     plan.executionSteps,
-    plan.notionContext ?? "",
+    usesNotionContext ? "" : plan.notionContext ?? "",
   );
 
   // 5. Persist the step record as RUNNING (upsert handles BullMQ retries cleanly)
@@ -91,13 +102,32 @@ export async function handleExecutorRun(
       console.log(`[execute] tool dispatch — agent="${currentStep.agent}"`);
       output = await TOOL_EXECUTORS[currentStep.agent](resolvedPrompt);
     } else {
-      // 6b. LLM agent: call the model
+      // 6b. LLM agent: call the model.
+      //
+      // When the planner opted this step into workspace context, we put it
+      // FIRST as a cached system block. Any subsequent executor in the same
+      // plan (or another plan within the cache TTL) that uses the same
+      // context hits the cache instead of paying full input cost on the
+      // ~1.5K-token block. The executor's own persona goes in a second
+      // system block (no breakpoint — short prompts won't cache anyway).
+      const messages: ModelMessage[] = [];
+
+      if (usesNotionContext && plan.notionContext) {
+        messages.push({
+          role: "system",
+          content: `<workspace_context>\n${plan.notionContext}\n</workspace_context>`,
+          providerOptions: CACHE_BREAKPOINT,
+        });
+      }
+
+      messages.push(
+        { role: "system", content: agent.systemPrompt },
+        { role: "user", content: resolvedPrompt },
+      );
+
       const result = await generateText({
         model: resolveModel(agent.model),
-        // Cache the executor's static system prompt — it's identical across every
-        // run of this executor, so we get cache hits across plans and turns.
-        system: cachedSystem(agent.systemPrompt),
-        prompt: resolvedPrompt,
+        messages,
       });
       output = result.text;
     }
